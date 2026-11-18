@@ -119,6 +119,22 @@ fun MainScreen(
         }
     }
 
+    LaunchedEffect(session.navigateToReturnsTrigger, session.navigateToReturnReceiptId) {
+        if (session.navigateToReturnsTrigger > 0) {
+            val targetId = session.navigateToReturnReceiptId
+            if (!targetId.isNullOrBlank()) {
+                navController.navigate(ReceiptDetailRoute(targetId)) {
+                    launchSingleTop = true
+                }
+            } else {
+                navController.navigate(ReceiptsRoute) {
+                    launchSingleTop = true
+                }
+            }
+            viewModel.consumeReturnReminderNavigation()
+        }
+    }
+
     val topLevelDestinations = remember(isOwner) {
         if (isOwner) {
             listOf(

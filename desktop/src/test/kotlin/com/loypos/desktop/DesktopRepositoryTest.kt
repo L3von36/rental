@@ -657,4 +657,94 @@ class DesktopRepositoryTest {
             dir.deleteRecursively()
         }
     }
+
+    @Test
+    fun rentalReturnReminderDetectsRentalsWithin24HoursAndExcludesReturned() {
+        val (repo, dir) = tempRepo()
+        try {
+            val tent = repo.state.value.items.first { it.id == "eq-001" }
+            val fixedNow = 1_760_000_000_000L
+            val dayMs = 86_400_000L
+
+            // Order 1: Rental due in 12 hours (startMs = fixedNow - 36h, rentalDays = 2 => endMs = fixedNow + 12h)
+            val dueSoonOrder = repo.checkoutRental(
+                lines = listOf(DesktopCartLine(tent.id, tent.name, tent.priceCents, 1.0, 2)),
+                rentalDays = 2,
+                paymentType = "card",
+                paidCents = 0L,
+                discountPercent = 0.0,
+                fixedDiscountCents = 0L,
+                depositCents = 0L,
+                client = DesktopClient(id = "c1", name = "Due Soon Client"),
+                eventName = "Due Soon Gala",
+                eventVenue = "Hall A",
+                note = "",
+                rentalStartMs = fixedNow - 36L * 3_600_000L,
+            )
+
+            // Order 2: Overdue by 3 hours (startMs = fixedNow - 27h, rentalDays = 1 => endMs = fixedNow - 3h)
+            val overdueOrder = repo.checkoutRental(
+                lines = listOf(DesktopCartLine(tent.id, tent.name, tent.priceCents, 1.0, 1)),
+                rentalDays = 1,
+                paymentType = "cash",
+                paidCents = 0L,
+                discountPercent = 0.0,
+                fixedDiscountCents = 0L,
+                depositCents = 0L,
+                client = DesktopClient(id = "c2", name = "Overdue Client"),
+                eventName = "Overdue Wedding",
+                eventVenue = "Garden",
+                note = "",
+                rentalStartMs = fixedNow - 27L * 3_600_000L,
+            )
+
+            // Order 3: Future rental due in 48 hours (should NOT trigger 24h alert)
+            repo.checkoutRental(
+                lines = listOf(DesktopCartLine(tent.id, tent.name, tent.priceCents, 1.0, 2)),
+                rentalDays = 2,
+                paymentType = "card",
+                paidCents = 0L,
+                discountPercent = 0.0,
+                fixedDiscountCents = 0L,
+                depositCents = 0L,
+                client = DesktopClient(id = "c3", name = "Far Future Client"),
+                eventName = "Future Expo",
+                eventVenue = "Plaza",
+                note = "",
+                rentalStartMs = fixedNow,
+            )
+
+            // Order 4: Due soon, but already returned (excluded)
+            val returnedOrder = repo.checkoutRental(
+                lines = listOf(DesktopCartLine(tent.id, tent.name, tent.priceCents, 1.0, 1)),
+                rentalDays = 1,
+                paymentType = "card",
+                paidCents = 0L,
+                discountPercent = 0.0,
+                fixedDiscountCents = 0L,
+                depositCents = 0L,
+                client = DesktopClient(id = "c4", name = "Returned Client"),
+                eventName = "Done Reception",
+                eventVenue = "Club",
+                note = "",
+                rentalStartMs = fixedNow - dayMs + 6L * 3_600_000L,
+            )
+            repo.markRentalReturned(returnedOrder.id)
+
+            val alerts = com.loypos.desktop.core.DesktopRentalReturnReminderCalculator.findRentalsDueWithin24Hours(
+                orders = repo.state.value.orders,
+                nowMs = fixedNow,
+            )
+            assertEquals(2, alerts.size)
+            assertEquals(overdueOrder.id, alerts[0].order.id)
+            assertTrue(alerts[0].isOverdue)
+            assertEquals("Overdue 3h", com.loypos.desktop.core.DesktopRentalReturnReminderCalculator.formatRemainingLabel(alerts[0].msUntilDue))
+
+            assertEquals(dueSoonOrder.id, alerts[1].order.id)
+            assertFalse(alerts[1].isOverdue)
+            assertEquals("Due in 12h", com.loypos.desktop.core.DesktopRentalReturnReminderCalculator.formatRemainingLabel(alerts[1].msUntilDue))
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
 }

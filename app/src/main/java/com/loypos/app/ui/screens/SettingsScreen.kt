@@ -215,14 +215,21 @@ fun SettingsScreen(
     var showInventoryCsvSheet by remember { mutableStateOf(false) }
     var showTokenDialog by remember { mutableStateOf(false) }
 
+    var pendingPermissionTarget by remember { mutableStateOf<String?>(null) }
+
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
         if (granted) {
-            viewModel.updateLowStockAlertSettings(true, data.settings.lowStockThreshold)
+            when (pendingPermissionTarget) {
+                "returns" -> viewModel.updateReturnReminderSettings(true)
+                "returns_check" -> viewModel.runReturnReminderCheckNow()
+                else -> viewModel.updateLowStockAlertSettings(true, data.settings.lowStockThreshold)
+            }
         } else {
-            viewModel.showMessage("Notification permission is required for low-stock alerts")
+            viewModel.showMessage("Notification permission is required for background alerts")
         }
+        pendingPermissionTarget = null
     }
 
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -518,6 +525,7 @@ fun SettingsScreen(
                                 } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                                     ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
                                 ) {
+                                    pendingPermissionTarget = "low_stock"
                                     notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                                 } else {
                                     viewModel.updateLowStockAlertSettings(true, data.settings.lowStockThreshold)
@@ -568,6 +576,7 @@ fun SettingsScreen(
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                                     ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
                                 ) {
+                                    pendingPermissionTarget = "low_stock"
                                     notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                                 } else {
                                     viewModel.runLowStockCheckNow()
@@ -580,6 +589,89 @@ fun SettingsScreen(
                         Icon(Icons.Outlined.Inventory2, contentDescription = null, tint = LoyGreen, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(10.dp))
                         Text("Check low stock now", color = LoyGreen, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+
+            // 24-Hour Rental Return Reminders (WorkManager)
+            item {
+                SectionHeader("Rental Return Reminders (24h Before Due)")
+                GroupCard {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Outlined.AccessTime, contentDescription = null, tint = LoyGreen, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Text("24-hour return notifications", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                                PillBadge(
+                                    text = if (data.settings.returnReminderAlertsEnabled) session.returnReminderWorkerStatus else "Off",
+                                )
+                            }
+                            Text(
+                                text = if (data.settings.returnReminderAlertsEnabled) {
+                                    "Automatically schedules a local notification 24h before each rental return date"
+                                } else {
+                                    "Scheduled 24h return reminders turned off"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = LoyTextSecondary,
+                            )
+                            if (data.settings.returnReminderLastCheckAt > 0L) {
+                                Text(
+                                    text = "Last check: ${formatDateTime(data.settings.returnReminderLastCheckAt)} · ${data.settings.returnReminderLastCount} due within 24h",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = LoyTextSecondary,
+                                )
+                            }
+                        }
+                        Switch(
+                            checked = data.settings.returnReminderAlertsEnabled,
+                            onCheckedChange = { enable ->
+                                if (!enable) {
+                                    viewModel.updateReturnReminderSettings(false)
+                                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                                    ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                                ) {
+                                    pendingPermissionTarget = "returns"
+                                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                } else {
+                                    viewModel.updateReturnReminderSettings(true)
+                                }
+                            },
+                            modifier = Modifier.testTag("settings_return_reminder_switch"),
+                        )
+                    }
+                    HorizontalDivider(color = LoyBorder)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 44.dp)
+                            .clickable {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                                    ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                                ) {
+                                    pendingPermissionTarget = "returns_check"
+                                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                } else {
+                                    viewModel.runReturnReminderCheckNow()
+                                }
+                            }
+                            .padding(horizontal = 12.dp, vertical = 9.dp)
+                            .testTag("settings_return_reminder_check_now"),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Outlined.NotificationsActive, contentDescription = null, tint = LoyGreen, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text("Check upcoming returns now", color = LoyGreen, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }

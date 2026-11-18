@@ -3,6 +3,9 @@ package com.loypos.desktop.ui
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,27 +30,15 @@ import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.CalendarToday
 import androidx.compose.material.icons.outlined.CheckCircleOutline
-import androidx.compose.material.icons.outlined.Clear
-import androidx.compose.material.icons.outlined.Event
-import androidx.compose.material.icons.outlined.LocationOn
-import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.PointOfSale
-import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Today
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -59,6 +50,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -94,7 +88,7 @@ fun RentalCalendarView(
     val today = remember { LocalDate.now() }
     var selectedDate by remember { mutableStateOf(today) }
     var displayedMonth by remember { mutableStateOf(YearMonth.from(today)) }
-    var scheduleFilterIdx by remember { mutableIntStateOf(0) } // 0 = Selected Date, 1 = Upcoming
+    var scheduleFilterIdx by remember { mutableIntStateOf(0) }
     var selectedCategoryId by remember { mutableStateOf<String?>(null) }
     var equipSearch by remember { mutableStateOf("") }
 
@@ -123,292 +117,193 @@ fun RentalCalendarView(
     val overdueCount = remember(snapshot.orders, now) { snapshot.orders.count { it.isOverdue(now) } }
 
     Row(modifier = Modifier.fillMaxSize().background(LoyBackground)) {
-        // Left Pane: Monthly Calendar & Upcoming Overview
+        // Left Pane: Calendar + Schedule List
         LazyColumn(
-            modifier = Modifier.weight(0.46f).fillMaxHeight(),
-            contentPadding = PaddingValues(18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier.weight(0.45f).fillMaxHeight(),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column {
-                        Text("Equipment Schedule & Calendar", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        Text(
-                            "$activeOutCount active out · $overdueCount overdue · ${upcomingOrders.size} upcoming",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = LoyTextSecondary,
-                        )
-                    }
-                    Button(
-                        onClick = { onBookForDate(dayStartMs(selectedDate)) },
-                        colors = ButtonDefaults.buttonColors(containerColor = LoyGreen),
-                    ) {
-                        Icon(Icons.Outlined.PointOfSale, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Book for ${selectedDate.month.name.take(3).lowercase().replaceFirstChar { it.uppercase() }} ${selectedDate.dayOfMonth}")
-                    }
-                }
-            }
-
-            item {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = LoySurface,
-                    border = BorderStroke(1.dp, LoyBorder),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Column(
-                        modifier = Modifier.padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
+                DesktopSectionCard(
+                    title = formatMonthYear(displayedMonth),
+                    subtitle = "$activeOutCount active out · $overdueCount overdue · ${upcomingOrders.size} upcoming",
+                    headerAction = {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
-                            IconButton(onClick = { displayedMonth = displayedMonth.minusMonths(1) }) {
-                                Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, contentDescription = "Previous month")
-                            }
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            IconButton(
+                                onClick = { displayedMonth = displayedMonth.minusMonths(1) },
+                                modifier = Modifier.size(28.dp).pointerHoverIcon(PointerIcon.Hand),
                             ) {
-                                Text(
-                                    formatMonthYear(displayedMonth),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                                if (displayedMonth != YearMonth.from(today) || selectedDate != today) {
-                                    TextButton(onClick = {
+                                Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, contentDescription = "Previous month", modifier = Modifier.size(18.dp))
+                            }
+                            if (displayedMonth != YearMonth.from(today) || selectedDate != today) {
+                                DesktopSecondaryButton(
+                                    text = "Today",
+                                    icon = Icons.Outlined.Today,
+                                    onClick = {
                                         selectedDate = today
                                         displayedMonth = YearMonth.from(today)
-                                    }) {
-                                        Icon(Icons.Outlined.Today, contentDescription = null, modifier = Modifier.size(15.dp))
-                                        Spacer(Modifier.width(4.dp))
-                                        Text("Today")
-                                    }
-                                }
-                            }
-                            IconButton(onClick = { displayedMonth = displayedMonth.plusMonths(1) }) {
-                                Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = "Next month")
-                            }
-                        }
-
-                        Row(modifier = Modifier.fillMaxWidth()) {
-                            listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun").forEach { d ->
-                                Text(
-                                    text = d,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = LoyTextSecondary,
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier.weight(1f),
+                                    },
                                 )
                             }
+                            IconButton(
+                                onClick = { displayedMonth = displayedMonth.plusMonths(1) },
+                                modifier = Modifier.size(28.dp).pointerHoverIcon(PointerIcon.Hand),
+                            ) {
+                                Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = "Next month", modifier = Modifier.size(18.dp))
+                            }
+                            DesktopPrimaryButton(
+                                text = "Book Date",
+                                icon = Icons.Outlined.PointOfSale,
+                                onClick = { onBookForDate(dayStartMs(selectedDate)) },
+                            )
                         }
+                    },
+                ) {
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun").forEach { d ->
+                            Text(
+                                text = d.uppercase(),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = LoyTextMuted,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
 
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            cells.chunked(7).forEach { week ->
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                ) {
-                                    week.forEach { cell ->
-                                        DesktopCalendarDayCell(
-                                            cell = cell,
-                                            isToday = cell.date == today,
-                                            isSelected = cell.date == selectedDate,
-                                            onClick = { selectedDate = cell.date },
-                                            modifier = Modifier.weight(1f),
-                                        )
-                                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        cells.chunked(7).forEach { week ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                            ) {
+                                week.forEach { cell ->
+                                    DesktopCalendarDayCell(
+                                        cell = cell,
+                                        isToday = cell.date == today,
+                                        isSelected = cell.date == selectedDate,
+                                        onClick = { selectedDate = cell.date },
+                                        modifier = Modifier.weight(1f),
+                                    )
                                 }
                             }
                         }
+                    }
 
-                        HorizontalDivider(color = LoyBorder)
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            DesktopLegendDot(LoyInfo, "Scheduled / Out")
-                            DesktopLegendDot(LoyWarning, "Overdue")
-                            DesktopLegendDot(LoyGreenDark, "Returned")
-                        }
+                    HorizontalDivider(color = LoyBorder)
+                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        DesktopLegendDot(LoyInfo, "Scheduled / Out")
+                        DesktopLegendDot(LoyWarning, "Overdue")
+                        DesktopLegendDot(LoyGreen, "Returned")
                     }
                 }
             }
 
-            // Scheduled Orders Section
             item {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = LoySurface,
-                    border = BorderStroke(1.dp, LoyBorder),
-                    modifier = Modifier.fillMaxWidth(),
+                val shownOrders = if (scheduleFilterIdx == 0) selectedDayOrders else upcomingOrders
+                DesktopSectionCard(
+                    title = if (scheduleFilterIdx == 0) formatFullLocalDate(selectedDate) else "All Upcoming Events",
+                    subtitle = "${shownOrders.size} rental booking(s)",
+                    headerAction = {
+                        DesktopSegmentedControl(
+                            options = listOf(
+                                0 to "Day (${selectedDayOrders.size})",
+                                1 to "Upcoming (${upcomingOrders.size})",
+                            ),
+                            selected = scheduleFilterIdx,
+                            onSelect = { scheduleFilterIdx = it },
+                        )
+                    },
+                    contentPadding = PaddingValues(0.dp),
                 ) {
-                    Column(
-                        modifier = Modifier.padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column {
-                                Text(
-                                    text = if (scheduleFilterIdx == 0) "Schedules for ${formatFullLocalDate(selectedDate)}" else "All Upcoming Schedules",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                                Text(
-                                    text = "${if (scheduleFilterIdx == 0) selectedDayOrders.size else upcomingOrders.size} bookings",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = LoyTextSecondary,
-                                )
-                            }
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                FilterChip(
-                                    selected = scheduleFilterIdx == 0,
-                                    onClick = { scheduleFilterIdx = 0 },
-                                    label = { Text("Day (${selectedDayOrders.size})") },
-                                )
-                                FilterChip(
-                                    selected = scheduleFilterIdx == 1,
-                                    onClick = { scheduleFilterIdx = 1 },
-                                    label = { Text("Upcoming (${upcomingOrders.size})") },
-                                )
-                            }
+                    if (shownOrders.isEmpty()) {
+                        DesktopEmptyState(
+                            icon = Icons.Outlined.CheckCircleOutline,
+                            title = "Full Fleet Open",
+                            subtitle = "No active bookings overlap this selected date.",
+                        )
+                    } else {
+                        DesktopTableHeaderRow {
+                            DesktopTableHeaderText("Order / Event", Modifier.weight(1.3f))
+                            DesktopTableHeaderText("Window", Modifier.weight(0.9f))
+                            DesktopTableHeaderText("Status", Modifier.width(84.dp))
                         }
-
-                        val shownOrders = if (scheduleFilterIdx == 0) selectedDayOrders else upcomingOrders
-                        if (shownOrders.isEmpty()) {
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = LoyBackground,
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                ) {
-                                    Icon(Icons.Outlined.CheckCircleOutline, contentDescription = null, tint = LoyGreenDark)
-                                    Column {
-                                        Text("No bookings overlapping this date", fontWeight = FontWeight.SemiBold)
-                                        Text("Full equipment fleet capacity is open for booking.", style = MaterialTheme.typography.bodySmall, color = LoyTextSecondary)
-                                    }
+                        shownOrders.forEach { order ->
+                            val overdue = order.isOverdue(now)
+                            DesktopTableRow {
+                                Column(modifier = Modifier.weight(1.3f)) {
+                                    Text(
+                                        text = order.eventName.ifBlank { "Order #${order.number.toString().padStart(4, '0')}" },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        text = listOfNotNull(
+                                            "#${order.number.toString().padStart(4, '0')}",
+                                            order.customerName?.takeIf { it.isNotBlank() },
+                                            order.eventVenue.takeIf { it.isNotBlank() },
+                                        ).joinToString(" · "),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = LoyTextMuted,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
                                 }
-                            }
-                        } else {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                shownOrders.forEach { order ->
-                                    val overdue = order.isOverdue(now)
-                                    Surface(
-                                        shape = RoundedCornerShape(10.dp),
-                                        color = LoyBackground,
-                                        border = BorderStroke(1.dp, if (overdue) LoyWarning.copy(alpha = 0.45f) else LoyBorder),
-                                        modifier = Modifier.fillMaxWidth(),
-                                    ) {
-                                        Column(
-                                            modifier = Modifier.padding(11.dp),
-                                            verticalArrangement = Arrangement.spacedBy(5.dp),
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.SpaceBetween,
-                                                verticalAlignment = Alignment.CenterVertically,
-                                            ) {
-                                                Text(
-                                                    text = order.eventName.ifBlank { "Order #${order.number.toString().padStart(4, '0')}" },
-                                                    fontWeight = FontWeight.Bold,
-                                                    modifier = Modifier.weight(1f),
-                                                )
-                                                Text(
-                                                    formatCents(order.totalCents, sym),
-                                                    style = TabularMoneyStyle,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = LoyGreenDark,
-                                                )
-                                            }
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.SpaceBetween,
-                                                verticalAlignment = Alignment.CenterVertically,
-                                            ) {
-                                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                                                    if (!order.customerName.isNullOrBlank()) {
-                                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                                                            Icon(Icons.Outlined.PersonOutline, contentDescription = null, tint = LoyTextSecondary, modifier = Modifier.size(14.dp))
-                                                            Text(order.customerName, style = MaterialTheme.typography.bodySmall, color = LoyTextSecondary)
-                                                        }
+                                Column(modifier = Modifier.weight(0.9f)) {
+                                    Text(
+                                        text = "${formatShortDate(order.rentalStartMs)} → ${formatShortDate(order.rentalEndMs)}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = LoyTextSecondary,
+                                    )
+                                    Text(
+                                        text = formatCents(order.totalCents, sym),
+                                        style = TabularMoneyStyle.merge(MaterialTheme.typography.labelSmall),
+                                        fontWeight = FontWeight.Bold,
+                                        color = LoyGreenDark,
+                                    )
+                                }
+                                Column(
+                                    modifier = Modifier.width(84.dp),
+                                    horizontalAlignment = Alignment.End,
+                                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                                ) {
+                                    DesktopBadge(
+                                        text = when {
+                                            order.isReturned -> "Returned"
+                                            overdue -> "Overdue"
+                                            else -> "Out ${order.rentalDays}d"
+                                        },
+                                        bgColor = when {
+                                            order.isReturned -> LoyGreenLight
+                                            overdue -> LoyErrorLight
+                                            else -> LoyInfoLight
+                                        },
+                                        fgColor = when {
+                                            order.isReturned -> LoyGreenDark
+                                            overdue -> LoyError
+                                            else -> LoyInfo
+                                        },
+                                    )
+                                    if (order.isRentalOut) {
+                                        Text(
+                                            text = "Mark In",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = LoyGreenDark,
+                                            fontWeight = FontWeight.SemiBold,
+                                            modifier = Modifier
+                                                .pointerHoverIcon(PointerIcon.Hand)
+                                                .clickable {
+                                                    if (repository.markRentalReturned(order.id)) {
+                                                        onToast("Marked #${order.number.toString().padStart(4, '0')} returned")
                                                     }
-                                                    if (order.eventVenue.isNotBlank()) {
-                                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                                                            Icon(Icons.Outlined.LocationOn, contentDescription = null, tint = LoyTextSecondary, modifier = Modifier.size(14.dp))
-                                                            Text(order.eventVenue, style = MaterialTheme.typography.bodySmall, color = LoyTextSecondary)
-                                                        }
-                                                    }
-                                                }
-                                                Box(
-                                                    modifier = Modifier
-                                                        .clip(RoundedCornerShape(999.dp))
-                                                        .background(
-                                                            when {
-                                                                order.isReturned -> LoyGreenLight
-                                                                overdue -> LoyWarningLight
-                                                                else -> LoyInfoLight
-                                                            }
-                                                        )
-                                                        .padding(horizontal = 8.dp, vertical = 2.dp),
-                                                ) {
-                                                    Text(
-                                                        text = when {
-                                                            order.isReturned -> "Returned"
-                                                            overdue -> "Overdue"
-                                                            else -> "Out ${order.rentalDays}d"
-                                                        },
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        fontWeight = FontWeight.SemiBold,
-                                                        color = when {
-                                                            order.isReturned -> LoyGreenDark
-                                                            overdue -> LoyWarning
-                                                            else -> LoyInfo
-                                                        },
-                                                    )
-                                                }
-                                            }
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.SpaceBetween,
-                                                verticalAlignment = Alignment.CenterVertically,
-                                            ) {
-                                                Text(
-                                                    text = "#${order.number.toString().padStart(4, '0')} · ${formatShortDate(order.rentalStartMs)} → ${formatShortDate(order.rentalEndMs)}",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = LoyTextPrimary,
-                                                )
-                                                if (order.isRentalOut) {
-                                                    TextButton(
-                                                        onClick = {
-                                                            if (repository.markRentalReturned(order.id)) {
-                                                                onToast("Marked #${order.number.toString().padStart(4, '0')} returned")
-                                                            }
-                                                        },
-                                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                                    ) {
-                                                        Icon(Icons.AutoMirrored.Outlined.AssignmentReturn, contentDescription = null, modifier = Modifier.size(14.dp))
-                                                        Spacer(Modifier.width(4.dp))
-                                                        Text("Mark Returned", style = MaterialTheme.typography.labelSmall)
-                                                    }
-                                                }
-                                            }
-                                        }
+                                                },
+                                        )
                                     }
                                 }
                             }
@@ -420,11 +315,11 @@ fun RentalCalendarView(
 
         VerticalDivider(color = LoyBorder)
 
-        // Right Pane: Equipment Availability Forecast Matrix for Selected Date
-        Column(modifier = Modifier.weight(0.54f).fillMaxHeight()) {
+        // Right Pane: Availability Matrix Table
+        Column(modifier = Modifier.weight(0.55f).fillMaxHeight()) {
             Surface(color = LoySurface) {
                 Column(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     val fullyBooked = availability.count { it.status == DesktopAvailabilityStatus.FULLY_BOOKED }
@@ -436,61 +331,43 @@ fun RentalCalendarView(
                     ) {
                         Column {
                             Text(
-                                text = "Fleet Availability on ${formatFullLocalDate(selectedDate)}",
-                                style = MaterialTheme.typography.titleMedium,
+                                text = "Availability Matrix · ${formatFullLocalDate(selectedDate)}",
+                                style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                             )
                             Text(
                                 text = "$partiallyBooked partial · $fullyBooked fully booked · ${availability.size - partiallyBooked - fullyBooked} full capacity",
-                                style = MaterialTheme.typography.bodySmall,
+                                style = MaterialTheme.typography.labelSmall,
                                 color = if (fullyBooked > 0) LoyWarning else LoyTextSecondary,
                             )
                         }
-                        OutlinedButton(onClick = { onBookForDate(dayStartMs(selectedDate)) }) {
-                            Icon(Icons.Outlined.CalendarToday, contentDescription = null, modifier = Modifier.size(15.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Rent on Date")
-                        }
+                        DesktopSecondaryButton(
+                            text = "Rent on Date",
+                            icon = Icons.Outlined.CalendarToday,
+                            onClick = { onBookForDate(dayStartMs(selectedDate)) },
+                        )
                     }
 
-                    OutlinedTextField(
+                    DesktopSearchInput(
                         value = equipSearch,
                         onValueChange = { equipSearch = it },
-                        placeholder = { Text("Filter equipment availability by name or SKU...") },
-                        leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-                        trailingIcon = {
-                            if (equipSearch.isNotEmpty()) {
-                                IconButton(onClick = { equipSearch = "" }) {
-                                    Icon(Icons.Outlined.Clear, contentDescription = "Clear search")
-                                }
-                            }
-                        },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = "Filter availability matrix by gear name or SKU...",
                     )
 
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         item {
-                            FilterChip(
+                            DesktopFilterPill(
+                                label = "All (${snapshot.items.size})",
                                 selected = selectedCategoryId == null,
                                 onClick = { selectedCategoryId = null },
-                                label = { Text("All (${snapshot.items.size})") },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = LoyGreenLight,
-                                    selectedLabelColor = LoyGreenDark,
-                                ),
                             )
                         }
                         items(snapshot.categories, key = { it.id }) { cat ->
                             val sel = selectedCategoryId == cat.id
-                            FilterChip(
+                            DesktopFilterPill(
+                                label = cat.name,
                                 selected = sel,
                                 onClick = { selectedCategoryId = if (sel) null else cat.id },
-                                label = { Text(cat.name) },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = LoyGreenLight,
-                                    selectedLabelColor = LoyGreenDark,
-                                ),
                             )
                         }
                     }
@@ -508,11 +385,13 @@ fun RentalCalendarView(
                     .sortedWith(compareByDescending<DesktopEquipmentAvailability> { it.reservedUnits }.thenBy { it.item.name })
             }
 
-            LazyColumn(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
+            DesktopTableHeaderRow {
+                DesktopTableHeaderText("SKU", Modifier.width(82.dp))
+                DesktopTableHeaderText("Equipment", Modifier.weight(1.4f))
+                DesktopTableHeaderText("Utilization", Modifier.weight(0.9f))
+                DesktopTableHeaderText("Available", Modifier.width(100.dp))
+            }
+            LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth().background(LoySurface)) {
                 items(filteredAvailability, key = { it.item.id }) { entry ->
                     val statusColor = when (entry.status) {
                         DesktopAvailabilityStatus.AVAILABLE, DesktopAvailabilityStatus.UNLIMITED -> LoyGreenDark
@@ -524,66 +403,52 @@ fun RentalCalendarView(
                         DesktopAvailabilityStatus.LOW -> LoyWarningLight
                         DesktopAvailabilityStatus.FULLY_BOOKED -> LoyErrorLight
                     }
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = LoySurface,
-                        border = BorderStroke(1.dp, LoyBorder),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        entry.item.name,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.SemiBold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    Text(
-                                        text = buildString {
-                                            append("${entry.item.sku} · ${formatCents(entry.item.priceCents, sym)}/d")
-                                            if (entry.reservedUnits > 0.0) {
-                                                append(" · ${formatQty(entry.reservedUnits)} reserved across ${entry.bookingsCount} ${if (entry.bookingsCount == 1) "order" else "orders"}")
-                                            }
-                                        },
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = LoyTextSecondary,
-                                    )
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(999.dp))
-                                        .background(statusBg)
-                                        .padding(horizontal = 10.dp, vertical = 3.dp),
-                                ) {
-                                    Text(
-                                        text = when (entry.status) {
-                                            DesktopAvailabilityStatus.UNLIMITED -> "Unlimited"
-                                            DesktopAvailabilityStatus.FULLY_BOOKED -> "0 / ${formatQty(entry.totalCapacity)} avail"
-                                            else -> "${formatQty(entry.availableUnits)} / ${formatQty(entry.totalCapacity)} avail"
-                                        },
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = statusColor,
-                                        fontWeight = FontWeight.Bold,
-                                    )
-                                }
-                            }
+
+                    DesktopTableRow {
+                        Text(
+                            text = entry.item.sku.ifBlank { entry.item.id },
+                            style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                            color = LoyTextMuted,
+                            modifier = Modifier.width(82.dp),
+                        )
+                        Column(modifier = Modifier.weight(1.4f)) {
+                            Text(
+                                text = entry.item.name,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                text = if (entry.reservedUnits > 0.0) {
+                                    "${formatQty(entry.reservedUnits)} reserved (${entry.bookingsCount} ord)"
+                                } else {
+                                    "${formatCents(entry.item.priceCents, sym)}/d"
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = LoyTextMuted,
+                            )
+                        }
+                        Box(modifier = Modifier.weight(0.9f)) {
                             if (entry.item.trackStock && entry.totalCapacity > 0.0) {
                                 LinearProgressIndicator(
                                     progress = { entry.utilizationRatio },
                                     color = statusColor,
-                                    trackColor = LoyBorder,
+                                    trackColor = LoySurfaceVariant,
                                     modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(4.dp)),
                                 )
                             }
+                        }
+                        Box(modifier = Modifier.width(100.dp), contentAlignment = Alignment.CenterEnd) {
+                            DesktopBadge(
+                                text = when (entry.status) {
+                                    DesktopAvailabilityStatus.UNLIMITED -> "Unlimited"
+                                    DesktopAvailabilityStatus.FULLY_BOOKED -> "0 / ${formatQty(entry.totalCapacity)}"
+                                    else -> "${formatQty(entry.availableUnits)} / ${formatQty(entry.totalCapacity)}"
+                                },
+                                bgColor = statusBg,
+                                fgColor = statusColor,
+                            )
                         }
                     }
                 }
@@ -600,32 +465,38 @@ private fun DesktopCalendarDayCell(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
     val bgColor = when {
         isSelected -> LoyGreen
         cell.overdueCount > 0 -> LoyWarningLight
         cell.activeCount > 0 -> LoyInfoLight
         isToday -> LoyGreenLight
-        else -> LoyBackground
+        hovered -> LoySurfaceVariant
+        else -> LoySurfaceHover
     }
     val borderColor = when {
         isSelected -> LoyGreenDark
         isToday -> LoyGreen
+        hovered -> LoyBorderStrong
         else -> LoyBorder
     }
     val textColor = when {
         isSelected -> Color.White
-        !cell.isCurrentMonth -> LoyTextSecondary.copy(alpha = 0.45f)
+        !cell.isCurrentMonth -> LoyTextMuted.copy(alpha = 0.45f)
         isToday -> LoyGreenDark
         else -> LoyTextPrimary
     }
 
     Surface(
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(6.dp),
         color = bgColor,
         border = BorderStroke(if (isSelected || isToday) 1.5.dp else 1.dp, borderColor),
         modifier = modifier
-            .height(54.dp)
-            .clip(RoundedCornerShape(8.dp))
+            .height(48.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .hoverable(interaction)
+            .pointerHoverIcon(PointerIcon.Hand)
             .clickable(onClick = onClick),
     ) {
         Column(
@@ -640,18 +511,15 @@ private fun DesktopCalendarDayCell(
                 color = textColor,
             )
             if (cell.totalCount > 0) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(3.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (cell.overdueCount > 0) {
-                        Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(if (isSelected) Color.White else LoyWarning))
+                        Box(modifier = Modifier.size(5.dp).clip(CircleShape).background(if (isSelected) Color.White else LoyWarning))
                     }
                     if (cell.activeCount - cell.overdueCount > 0) {
-                        Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(if (isSelected) Color.White else LoyInfo))
+                        Box(modifier = Modifier.size(5.dp).clip(CircleShape).background(if (isSelected) Color.White else LoyInfo))
                     }
                     if (cell.returnedCount > 0) {
-                        Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(if (isSelected) Color.White.copy(alpha = 0.8f) else LoyGreenDark))
+                        Box(modifier = Modifier.size(5.dp).clip(CircleShape).background(if (isSelected) Color.White.copy(alpha = 0.8f) else LoyGreenDark))
                     }
                     Text(
                         "${cell.totalCount}",
@@ -661,7 +529,7 @@ private fun DesktopCalendarDayCell(
                     )
                 }
             } else {
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(8.dp))
             }
         }
     }
@@ -670,7 +538,7 @@ private fun DesktopCalendarDayCell(
 @Composable
 private fun DesktopLegendDot(color: Color, label: String) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(color))
+        Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(color))
         Text(label, style = MaterialTheme.typography.labelSmall, color = LoyTextSecondary)
     }
 }

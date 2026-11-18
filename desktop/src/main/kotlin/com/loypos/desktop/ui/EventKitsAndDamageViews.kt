@@ -19,6 +19,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,7 +32,6 @@ import androidx.compose.material.icons.outlined.AddAPhoto
 import androidx.compose.material.icons.outlined.AddShoppingCart
 import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.Clear
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Edit
@@ -37,7 +39,6 @@ import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.QrCode2
 import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.ReportProblem
-import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -47,14 +48,10 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -72,6 +69,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -125,61 +124,47 @@ fun DesktopEventKitsView(
 
     Column(modifier = Modifier.fillMaxSize().background(LoyBackground)) {
         Surface(color = LoySurface) {
-            Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Icon(Icons.Outlined.Layers, contentDescription = null, tint = LoyGreenDark)
-                            Text("Event Kits & Bundles", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        }
-                        Text(
-                            "Group tents, chairs, tables, linens, and AV sound into reusable packages with 1-click Rent Desk ordering.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = LoyTextSecondary,
-                        )
-                    }
-                    Button(onClick = { showCreateDialog = true }) {
-                        Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("New Event Kit")
-                    }
-                }
-                OutlinedTextField(
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                DesktopSearchInput(
                     value = search,
                     onValueChange = { search = it },
-                    placeholder = { Text("Search kits by package name, category, or included equipment...") },
-                    leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-                    trailingIcon = {
-                        if (search.isNotEmpty()) {
-                            IconButton(onClick = { search = "" }) {
-                                Icon(Icons.Outlined.Clear, contentDescription = "Clear search")
-                            }
-                        }
-                    },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = "Search event kits by package name, category, or included gear...",
+                    modifier = Modifier.weight(1f),
+                )
+                DesktopPrimaryButton(
+                    text = "New Event Kit",
+                    icon = Icons.Outlined.Add,
+                    onClick = { showCreateDialog = true },
                 )
             }
         }
         HorizontalDivider(color = LoyBorder)
 
         if (filteredKits.isEmpty()) {
-            Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Outlined.Layers, contentDescription = null, tint = LoyTextSecondary, modifier = Modifier.size(38.dp))
-                    Text("No Event Kits match", style = MaterialTheme.typography.titleSmall, color = LoyTextSecondary)
-                    Button(onClick = { showCreateDialog = true }) { Text("Create Event Kit") }
-                }
-            }
+            DesktopEmptyState(
+                icon = Icons.Outlined.Layers,
+                title = "No Event Kits Match",
+                subtitle = "Create a reusable bundle package to speed up Rent Desk checkouts.",
+                action = {
+                    DesktopPrimaryButton(
+                        text = "Create Event Kit",
+                        icon = Icons.Outlined.Add,
+                        onClick = { showCreateDialog = true },
+                    )
+                },
+                modifier = Modifier.weight(1f),
+            )
         } else {
-            LazyColumn(
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 460.dp),
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 items(filteredKits, key = { it.id }) { kit ->
                     val rawDailyTotalCents = kit.items.sumOf { ki ->
@@ -191,117 +176,104 @@ fun DesktopEventKitsView(
                     } else rawDailyTotalCents
 
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(8.dp),
                         color = LoySurface,
                         border = BorderStroke(1.dp, LoyBorder),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.Top,
-                            ) {
-                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        Text(kit.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                                        Surface(shape = RoundedCornerShape(999.dp), color = LoyGreenLight) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Box(modifier = Modifier.fillMaxWidth().height(3.dp).background(LoyGreen))
+                            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.Top,
+                                ) {
+                                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            Text(kit.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                            DesktopBadge(kit.category, LoyGreenLight, LoyGreenDark)
+                                            if (kit.discountPercent > 0.0) {
+                                                DesktopBadge("${formatQty(kit.discountPercent)}% Off", LoyInfoLight, LoyInfo)
+                                            }
+                                        }
+                                        if (kit.description.isNotBlank()) {
+                                            Text(kit.description, style = MaterialTheme.typography.bodySmall, color = LoyTextSecondary)
+                                        }
+                                    }
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Text(
+                                            "${formatCents(bundleDailyTotalCents, sym)}/day",
+                                            style = TabularMoneyStyle.merge(MaterialTheme.typography.titleMedium),
+                                            color = LoyGreenDark,
+                                            fontWeight = FontWeight.Bold,
+                                        )
+                                        if (kit.discountPercent > 0.0) {
                                             Text(
-                                                kit.category,
+                                                "Std ${formatCents(rawDailyTotalCents, sym)}/d",
                                                 style = MaterialTheme.typography.labelSmall,
-                                                color = LoyGreenDark,
-                                                fontWeight = FontWeight.SemiBold,
-                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                                color = LoyTextMuted,
                                             )
                                         }
-                                        if (kit.discountPercent > 0.0) {
-                                            Surface(shape = RoundedCornerShape(999.dp), color = LoyInfoLight) {
-                                                Text(
-                                                    "${formatQty(kit.discountPercent)}% Bundle Off",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = LoyInfo,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                                )
-                                            }
-                                        }
-                                    }
-                                    if (kit.description.isNotBlank()) {
-                                        Text(kit.description, style = MaterialTheme.typography.bodySmall, color = LoyTextSecondary)
                                     }
                                 }
-                                Column(horizontalAlignment = Alignment.End) {
-                                    Text(
-                                        "${formatCents(bundleDailyTotalCents, sym)}/day",
-                                        style = TabularMoneyStyle.merge(MaterialTheme.typography.titleMedium),
-                                        color = LoyGreenDark,
-                                        fontWeight = FontWeight.Bold,
-                                    )
-                                    if (kit.discountPercent > 0.0) {
-                                        Text(
-                                            "Standard ${formatCents(rawDailyTotalCents, sym)}/d",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = LoyTextSecondary,
-                                        )
-                                    }
-                                }
-                            }
 
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = LoyBackground,
-                                border = BorderStroke(1.dp, LoyBorder),
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                                    kit.items.forEachIndexed { idx, line ->
-                                        if (idx > 0) HorizontalDivider(color = LoyBorder)
-                                        val equip = catalogMap[line.itemId]
-                                        val stockShort = equip != null && equip.trackStock && equip.stock < line.qty
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically,
-                                        ) {
-                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                                Text("${formatQty(line.qty)} ×", fontWeight = FontWeight.Bold, color = LoyGreenDark)
-                                                Text(equip?.name ?: line.itemName, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
-                                            }
-                                            if (equip != null) {
-                                                Text(
-                                                    text = "${formatQty(equip.stock)} avail · ${formatCents(equip.priceCents, sym)}/d",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = if (stockShort) LoyWarning else LoyTextSecondary,
-                                                    fontWeight = if (stockShort) FontWeight.SemiBold else FontWeight.Normal,
-                                                )
-                                            } else {
-                                                Text("Not in fleet", style = MaterialTheme.typography.labelSmall, color = LoyError)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Button(
-                                    onClick = { onAddKitToOrder(kit) },
-                                    colors = ButtonDefaults.buttonColors(containerColor = LoyGreen),
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = LoySurfaceHover,
+                                    border = BorderStroke(1.dp, LoyBorder),
+                                    modifier = Modifier.fillMaxWidth(),
                                 ) {
-                                    Icon(Icons.Outlined.AddShoppingCart, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("Add Kit to Order (1-Click)", fontWeight = FontWeight.Bold)
+                                    Column {
+                                        kit.items.forEachIndexed { idx, line ->
+                                            if (idx > 0) HorizontalDivider(color = LoyBorder.copy(alpha = 0.7f))
+                                            val equip = catalogMap[line.itemId]
+                                            val stockShort = equip != null && equip.trackStock && equip.stock < line.qty
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically,
+                                            ) {
+                                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                                    Text("${formatQty(line.qty)} ×", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = LoyGreenDark)
+                                                    Text(equip?.name ?: line.itemName, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+                                                }
+                                                if (equip != null) {
+                                                    Text(
+                                                        text = "${formatQty(equip.stock)} avail · ${formatCents(equip.priceCents, sym)}/d",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = if (stockShort) LoyWarning else LoyTextMuted,
+                                                        fontWeight = if (stockShort) FontWeight.SemiBold else FontWeight.Normal,
+                                                    )
+                                                } else {
+                                                    Text("Not in fleet", style = MaterialTheme.typography.labelSmall, color = LoyError)
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
-                                Spacer(Modifier.weight(1f))
-                                OutlinedButton(onClick = { editingKit = kit }) {
-                                    Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Edit")
-                                }
-                                IconButton(onClick = {
-                                    repository.deleteEventKit(kit.id)
-                                    onToast("Deleted ${kit.name}")
-                                }) {
-                                    Icon(Icons.Outlined.DeleteOutline, contentDescription = "Delete kit", tint = LoyError)
+
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    DesktopPrimaryButton(
+                                        text = "Add Kit to Order (1-Click)",
+                                        icon = Icons.Outlined.AddShoppingCart,
+                                        onClick = { onAddKitToOrder(kit) },
+                                    )
+                                    Spacer(Modifier.weight(1f))
+                                    DesktopSecondaryButton(
+                                        text = "Edit",
+                                        icon = Icons.Outlined.Edit,
+                                        onClick = { editingKit = kit },
+                                    )
+                                    DesktopSecondaryButton(
+                                        text = "Delete",
+                                        icon = Icons.Outlined.DeleteOutline,
+                                        contentColor = LoyError,
+                                        onClick = {
+                                            repository.deleteEventKit(kit.id)
+                                            onToast("Deleted ${kit.name}")
+                                        },
+                                    )
                                 }
                             }
                         }
@@ -366,68 +338,42 @@ private fun DesktopEventKitEditorDialog(
         text = {
             Column(
                 modifier = Modifier.width(560.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Kit / Package Name * (e.g. Wedding Package)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                DesktopFormInput("Kit / Package Name * (e.g. Wedding Package)", name, { name = it })
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = category,
-                        onValueChange = { category = it },
-                        label = { Text("Category") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f),
-                    )
-                    OutlinedTextField(
-                        value = discountText,
-                        onValueChange = { discountText = it },
-                        label = { Text("Bundle % Off") },
-                        singleLine = true,
-                        modifier = Modifier.weight(0.7f),
-                    )
+                    DesktopFormInput("Category", category, { category = it }, modifier = Modifier.weight(1f))
+                    DesktopFormInput("Bundle % Off", discountText, { discountText = it }, modifier = Modifier.weight(0.7f))
                 }
-                OutlinedTextField(
-                    value = description,
-                    onValueChange = { description = it },
-                    label = { Text("Description / Event notes") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                DesktopFormInput("Description / Event Notes", description, { description = it })
                 HorizontalDivider(color = LoyBorder)
                 Text(
                     "Included Equipment (${selectedQuantities.size} items selected)",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                 )
-                OutlinedTextField(
+                DesktopSearchInput(
                     value = pickerFilter,
                     onValueChange = { pickerFilter = it },
-                    placeholder = { Text("Filter equipment by name or SKU...") },
-                    leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = "Filter equipment by name or SKU...",
                 )
                 LazyColumn(
-                    modifier = Modifier.fillMaxWidth().height(260.dp),
+                    modifier = Modifier.fillMaxWidth().height(250.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     items(filteredEquipment, key = { it.id }) { equip ->
                         val qty = selectedQuantities[equip.id]
                         val checked = qty != null && qty > 0.0
                         Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = if (checked) LoyGreenLight.copy(alpha = 0.55f) else LoyBackground,
+                            shape = RoundedCornerShape(6.dp),
+                            color = if (checked) LoyGreenLight.copy(alpha = 0.45f) else LoyBackground,
                             border = BorderStroke(1.dp, if (checked) LoyGreen else LoyBorder),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .pointerHoverIcon(PointerIcon.Hand)
                                     .clickable {
                                         if (checked) selectedQuantities.remove(equip.id)
                                         else selectedQuantities[equip.id] = 1.0
@@ -454,20 +400,20 @@ private fun DesktopEventKitEditorDialog(
                                                 val next = (qty ?: 1.0) - 1.0
                                                 if (next <= 0.0) selectedQuantities.remove(equip.id) else selectedQuantities[equip.id] = next
                                             },
-                                            modifier = Modifier.size(28.dp),
+                                            modifier = Modifier.size(26.dp),
                                         ) {
-                                            Icon(Icons.Outlined.Remove, contentDescription = "Decrease", modifier = Modifier.size(15.dp))
+                                            Icon(Icons.Outlined.Remove, contentDescription = "Decrease", modifier = Modifier.size(14.dp))
                                         }
                                         Text(formatQty(qty ?: 1.0), fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 4.dp))
                                         IconButton(
                                             onClick = { selectedQuantities[equip.id] = (qty ?: 1.0) + 1.0 },
-                                            modifier = Modifier.size(28.dp),
+                                            modifier = Modifier.size(26.dp),
                                         ) {
-                                            Icon(Icons.Outlined.Add, contentDescription = "Increase", modifier = Modifier.size(15.dp))
+                                            Icon(Icons.Outlined.Add, contentDescription = "Increase", modifier = Modifier.size(14.dp))
                                         }
                                         IconButton(
                                             onClick = { selectedQuantities[equip.id] = (qty ?: 1.0) + 10.0 },
-                                            modifier = Modifier.size(34.dp),
+                                            modifier = Modifier.size(32.dp),
                                         ) {
                                             Text("+10", style = MaterialTheme.typography.labelSmall, color = LoyGreenDark, fontWeight = FontWeight.Bold)
                                         }
@@ -563,103 +509,74 @@ fun DesktopDamageReportsView(
 
     Column(modifier = Modifier.fillMaxSize().background(LoyBackground)) {
         Surface(color = LoySurface) {
-            Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Column {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Icon(Icons.Outlined.ReportProblem, contentDescription = null, tint = LoyWarning)
-                            Text("Equipment Damage Report Log", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        }
-                        Text(
-                            "Document & photograph damaged returns with equipment IDs, inspection notes, repair costs, and maintenance status.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = LoyTextSecondary,
-                        )
-                    }
-                    Button(
+                    DesktopKpiTile("Open", openCount.toString(), if (openCount > 0) LoyError else LoyGreen, Modifier.weight(1f))
+                    DesktopKpiTile("Repairing", repairingCount.toString(), LoyWarning, Modifier.weight(1f))
+                    DesktopKpiTile("Resolved", resolvedCount.toString(), LoyGreen, Modifier.weight(1f))
+                    DesktopKpiTile("Est. Repair Total", formatCents(totalEstCostCents, sym), LoyInfo, Modifier.weight(1.2f))
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    DesktopSearchInput(
+                        value = search,
+                        onValueChange = { search = it },
+                        placeholder = "Search by equipment ID, SKU, QR unit tag, client, or inspection notes...",
+                        modifier = Modifier.weight(1f),
+                    )
+                    DesktopSegmentedControl(
+                        options = listOf(
+                            "all" to "All (${snapshot.damageReports.size})",
+                            "open" to "Open ($openCount)",
+                            "repairing" to "Repair ($repairingCount)",
+                            "resolved" to "Resolved ($resolvedCount)",
+                        ),
+                        selected = statusFilter,
+                        onSelect = { statusFilter = it },
+                    )
+                    DesktopPrimaryButton(
+                        text = "Log Damage",
+                        icon = Icons.Outlined.AddAPhoto,
+                        containerColor = LoyWarning,
                         onClick = {
                             initialOrderForDialog = null
                             editingReport = null
                             showCreateDialog = true
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = LoyWarning),
-                    ) {
-                        Icon(Icons.Outlined.AddAPhoto, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Log Damage Report")
-                    }
-                }
-
-                // KPI Strip
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                    DamageKpiChip("Open", openCount.toString(), if (openCount > 0) LoyError else LoyTextPrimary, Modifier.weight(1f))
-                    DamageKpiChip("Repairing", repairingCount.toString(), LoyWarning, Modifier.weight(1f))
-                    DamageKpiChip("Resolved", resolvedCount.toString(), LoyGreenDark, Modifier.weight(1f))
-                    DamageKpiChip("Est. Repair Total", formatCents(totalEstCostCents, sym), LoyInfo, Modifier.weight(1.3f))
-                }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(
-                        value = search,
-                        onValueChange = { search = it },
-                        placeholder = { Text("Search by equipment ID, SKU, QR unit tag, client, or inspection notes...") },
-                        leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-                        trailingIcon = {
-                            if (search.isNotEmpty()) {
-                                IconButton(onClick = { search = "" }) {
-                                    Icon(Icons.Outlined.Clear, contentDescription = "Clear search")
-                                }
-                            }
-                        },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f),
                     )
-                    listOf(
-                        "all" to "All (${snapshot.damageReports.size})",
-                        "open" to "Open ($openCount)",
-                        "repairing" to "Repairing ($repairingCount)",
-                        "resolved" to "Resolved ($resolvedCount)",
-                    ).forEach { (key, label) ->
-                        FilterChip(
-                            selected = statusFilter == key,
-                            onClick = { statusFilter = key },
-                            label = { Text(label) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = LoyGreenLight,
-                                selectedLabelColor = LoyGreenDark,
-                            ),
-                        )
-                    }
                 }
             }
         }
         HorizontalDivider(color = LoyBorder)
 
         if (filteredReports.isEmpty()) {
-            Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Outlined.ReportProblem, contentDescription = null, tint = LoyTextSecondary, modifier = Modifier.size(38.dp))
-                    Text(
-                        if (snapshot.damageReports.isEmpty()) "No damage reports logged yet" else "No matching damage reports",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = LoyTextSecondary,
+            DesktopEmptyState(
+                icon = Icons.Outlined.ReportProblem,
+                title = if (snapshot.damageReports.isEmpty()) "No Damage Reports Logged" else "No Matching Reports",
+                subtitle = "Attach equipment IDs, inspection notes, repair estimates, and damage photos.",
+                action = {
+                    DesktopPrimaryButton(
+                        text = "Document Returned Damage",
+                        icon = Icons.Outlined.AddAPhoto,
+                        containerColor = LoyWarning,
+                        onClick = {
+                            initialOrderForDialog = null
+                            editingReport = null
+                            showCreateDialog = true
+                        },
                     )
-                    Button(onClick = {
-                        initialOrderForDialog = null
-                        editingReport = null
-                        showCreateDialog = true
-                    }) { Text("Document Returned Damage") }
-                }
-            }
+                },
+                modifier = Modifier.weight(1f),
+            )
         } else {
             LazyColumn(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 items(filteredReports, key = { it.id }) { report ->
                     val statusColors = when (report.status) {
@@ -674,12 +591,12 @@ fun DesktopDamageReportsView(
                     }
 
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(8.dp),
                         color = LoySurface,
                         border = BorderStroke(1.dp, LoyBorder),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -687,33 +604,17 @@ fun DesktopDamageReportsView(
                             ) {
                                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        Surface(shape = RoundedCornerShape(999.dp), color = statusColors.first) {
-                                            Text(
-                                                report.status.replaceFirstChar { it.uppercase() },
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = statusColors.second,
-                                                fontWeight = FontWeight.Bold,
-                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                            )
-                                        }
-                                        Surface(shape = RoundedCornerShape(999.dp), color = severityColors.first) {
-                                            Text(
-                                                report.severity.replaceFirstChar { it.uppercase() },
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = severityColors.second,
-                                                fontWeight = FontWeight.SemiBold,
-                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                            )
-                                        }
-                                        Surface(shape = RoundedCornerShape(6.dp), color = LoyBackground) {
+                                        DesktopBadge(report.status.replaceFirstChar { it.uppercase() }, statusColors.first, statusColors.second)
+                                        DesktopBadge(report.severity.replaceFirstChar { it.uppercase() }, severityColors.first, severityColors.second)
+                                        Surface(shape = RoundedCornerShape(4.dp), color = LoySurfaceVariant) {
                                             Text(
                                                 "ID: ${report.itemId}${if (report.itemSku.isNotBlank()) " · SKU: ${report.itemSku}" else ""}",
                                                 style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
-                                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                             )
                                         }
                                         if (report.unitCode.isNotBlank()) {
-                                            Surface(shape = RoundedCornerShape(6.dp), color = LoyBackground) {
+                                            Surface(shape = RoundedCornerShape(4.dp), color = LoySurfaceVariant) {
                                                 Row(
                                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                                     verticalAlignment = Alignment.CenterVertically,
@@ -725,17 +626,17 @@ fun DesktopDamageReportsView(
                                             }
                                         }
                                     }
-                                    Text(report.itemName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                    Text(report.itemName, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                                     val metaParts = listOfNotNull(
                                         report.orderNumber?.let { "Order #${it.toString().padStart(4, '0')}" },
                                         report.customerName.takeIf { it.isNotBlank() },
                                         "Logged ${formatDateTime(report.createdAt)}",
                                     )
-                                    Text(metaParts.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = LoyTextSecondary)
+                                    Text(metaParts.joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = LoyTextMuted)
                                 }
                                 if (report.repairCostCents > 0L) {
                                     Column(horizontalAlignment = Alignment.End) {
-                                        Text("Est. Repair", style = MaterialTheme.typography.labelSmall, color = LoyTextSecondary)
+                                        Text("EST. REPAIR", style = MaterialTheme.typography.labelSmall, color = LoyTextMuted)
                                         Text(
                                             formatCents(report.repairCostCents, sym),
                                             style = TabularMoneyStyle.merge(MaterialTheme.typography.titleMedium),
@@ -748,8 +649,8 @@ fun DesktopDamageReportsView(
 
                             if (report.notes.isNotBlank()) {
                                 Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = LoyBackground,
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = LoySurfaceHover,
                                     border = BorderStroke(1.dp, LoyBorder),
                                     modifier = Modifier.fillMaxWidth(),
                                 ) {
@@ -762,7 +663,7 @@ fun DesktopDamageReportsView(
                                     items(report.photoPaths, key = { it }) { path ->
                                         DamagePhotoThumbnail(
                                             path = path,
-                                            sizeDp = 78,
+                                            sizeDp = 76,
                                             onClick = { zoomedPhotoPath = path },
                                         )
                                     }
@@ -771,45 +672,48 @@ fun DesktopDamageReportsView(
 
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                 if (report.status == "open") {
-                                    OutlinedButton(onClick = {
-                                        repository.updateDamageReportStatus(report.id, "repairing")
-                                        onToast("Marked as under repair")
-                                    }) {
-                                        Icon(Icons.Outlined.Build, contentDescription = null, modifier = Modifier.size(15.dp))
-                                        Spacer(Modifier.width(4.dp))
-                                        Text("Start Repair")
-                                    }
+                                    DesktopSecondaryButton(
+                                        text = "Start Repair",
+                                        icon = Icons.Outlined.Build,
+                                        onClick = {
+                                            repository.updateDamageReportStatus(report.id, "repairing")
+                                            onToast("Marked as under repair")
+                                        },
+                                    )
                                 }
                                 if (report.status != "resolved") {
-                                    Button(
+                                    DesktopPrimaryButton(
+                                        text = "Mark Resolved",
+                                        icon = Icons.Outlined.CheckCircle,
                                         onClick = {
                                             repository.updateDamageReportStatus(report.id, "resolved")
                                             onToast("Marked damage report resolved")
                                         },
-                                        colors = ButtonDefaults.buttonColors(containerColor = LoyGreen),
-                                    ) {
-                                        Icon(Icons.Outlined.CheckCircle, contentDescription = null, modifier = Modifier.size(15.dp))
-                                        Spacer(Modifier.width(4.dp))
-                                        Text("Mark Resolved")
-                                    }
+                                    )
                                 } else {
-                                    OutlinedButton(onClick = {
-                                        repository.updateDamageReportStatus(report.id, "open")
-                                        onToast("Reopened damage report")
-                                    }) { Text("Reopen") }
+                                    DesktopSecondaryButton(
+                                        text = "Reopen",
+                                        onClick = {
+                                            repository.updateDamageReportStatus(report.id, "open")
+                                            onToast("Reopened damage report")
+                                        },
+                                    )
                                 }
                                 Spacer(Modifier.weight(1f))
-                                OutlinedButton(onClick = { editingReport = report }) {
-                                    Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(15.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Edit")
-                                }
-                                IconButton(onClick = {
-                                    repository.deleteDamageReport(report.id)
-                                    onToast("Deleted damage report")
-                                }) {
-                                    Icon(Icons.Outlined.DeleteOutline, contentDescription = "Delete report", tint = LoyError)
-                                }
+                                DesktopSecondaryButton(
+                                    text = "Edit",
+                                    icon = Icons.Outlined.Edit,
+                                    onClick = { editingReport = report },
+                                )
+                                DesktopSecondaryButton(
+                                    text = "Delete",
+                                    icon = Icons.Outlined.DeleteOutline,
+                                    contentColor = LoyError,
+                                    onClick = {
+                                        repository.deleteDamageReport(report.id)
+                                        onToast("Deleted damage report")
+                                    },
+                                )
                             }
                         }
                     }
@@ -860,21 +764,6 @@ fun DesktopDamageReportsView(
             },
             confirmButton = { Button(onClick = { zoomedPhotoPath = null }) { Text("Close") } },
         )
-    }
-}
-
-@Composable
-private fun DamageKpiChip(label: String, value: String, color: Color, modifier: Modifier) {
-    Surface(
-        shape = RoundedCornerShape(10.dp),
-        color = LoyBackground,
-        border = BorderStroke(1.dp, LoyBorder),
-        modifier = modifier,
-    ) {
-        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-            Text(label, style = MaterialTheme.typography.labelSmall, color = LoyTextSecondary)
-            Text(value, style = TabularMoneyStyle.merge(MaterialTheme.typography.titleMedium), color = color, fontWeight = FontWeight.Bold)
-        }
     }
 }
 
@@ -931,44 +820,59 @@ private fun DesktopDamageReportDialog(
         text = {
             Column(
                 modifier = Modifier.width(560.dp).heightIn(max = 540.dp).verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                // Linked Rental Order dropdown
                 if (snapshot.orders.isNotEmpty()) {
-                    ExposedDropdownMenuBox(
-                        expanded = orderMenuExpanded,
-                        onExpandedChange = { orderMenuExpanded = !orderMenuExpanded },
-                    ) {
-                        OutlinedTextField(
-                            value = selectedOrder?.let { o ->
-                                "#${o.number.toString().padStart(4, '0')} · ${o.customerName ?: "Walk-in"}"
-                            } ?: "No linked rental order (Depot inspection)",
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text("Linked Rental Order") },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = orderMenuExpanded) },
-                            modifier = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
-                        )
-                        ExposedDropdownMenu(expanded = orderMenuExpanded, onDismissRequest = { orderMenuExpanded = false }) {
-                            DropdownMenuItem(
-                                text = { Text("None (Standalone depot inspection)") },
-                                onClick = { selectedOrder = null; orderMenuExpanded = false },
-                            )
-                            snapshot.orders.take(20).forEach { order ->
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Linked Rental Order", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, color = LoyTextSecondary)
+                        ExposedDropdownMenuBox(
+                            expanded = orderMenuExpanded,
+                            onExpandedChange = { orderMenuExpanded = !orderMenuExpanded },
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = LoySurface,
+                                border = BorderStroke(1.dp, LoyBorder),
+                                modifier = Modifier
+                                    .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+                                    .fillMaxWidth()
+                                    .height(36.dp)
+                                    .pointerHoverIcon(PointerIcon.Hand),
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Text(
+                                        selectedOrder?.let { o -> "#${o.number.toString().padStart(4, '0')} · ${o.customerName ?: "Walk-in"}" }
+                                            ?: "No linked rental order (Depot inspection)",
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = orderMenuExpanded)
+                                }
+                            }
+                            ExposedDropdownMenu(expanded = orderMenuExpanded, onDismissRequest = { orderMenuExpanded = false }) {
                                 DropdownMenuItem(
-                                    text = { Text("#${order.number.toString().padStart(4, '0')} · ${order.customerName ?: "Walk-in"} (${order.eventName})") },
-                                    onClick = {
-                                        selectedOrder = order
-                                        if (customerNameText.isBlank()) customerNameText = order.customerName.orEmpty()
-                                        order.lines.firstOrNull()?.let { l ->
-                                            val eq = l.itemId?.let { id -> snapshot.items.firstOrNull { it.id == id } }
-                                            itemIdText = l.itemId ?: eq?.id ?: itemIdText
-                                            itemSkuText = eq?.sku ?: ""
-                                            itemNameText = l.name
-                                        }
-                                        orderMenuExpanded = false
-                                    },
+                                    text = { Text("None (Standalone depot inspection)") },
+                                    onClick = { selectedOrder = null; orderMenuExpanded = false },
                                 )
+                                snapshot.orders.take(20).forEach { order ->
+                                    DropdownMenuItem(
+                                        text = { Text("#${order.number.toString().padStart(4, '0')} · ${order.customerName ?: "Walk-in"} (${order.eventName})") },
+                                        onClick = {
+                                            selectedOrder = order
+                                            if (customerNameText.isBlank()) customerNameText = order.customerName.orEmpty()
+                                            order.lines.firstOrNull()?.let { l ->
+                                                val eq = l.itemId?.let { id -> snapshot.items.firstOrNull { it.id == id } }
+                                                itemIdText = l.itemId ?: eq?.id ?: itemIdText
+                                                itemSkuText = eq?.sku ?: ""
+                                                itemNameText = l.name
+                                            }
+                                            orderMenuExpanded = false
+                                        },
+                                    )
+                                }
                             }
                         }
                     }
@@ -978,7 +882,8 @@ private fun DesktopDamageReportDialog(
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             items(ord.lines) { line ->
                                 val isSel = line.itemId != null && line.itemId == itemIdText
-                                FilterChip(
+                                DesktopFilterPill(
+                                    label = line.name,
                                     selected = isSel,
                                     onClick = {
                                         val eq = line.itemId?.let { id -> snapshot.items.firstOrNull { it.id == id } }
@@ -986,72 +891,66 @@ private fun DesktopDamageReportDialog(
                                         itemSkuText = eq?.sku ?: ""
                                         itemNameText = line.name
                                     },
-                                    label = { Text(line.name, maxLines = 1) },
                                 )
                             }
                         }
                     }
                 }
 
-                // Equipment Picker Dropdown
-                ExposedDropdownMenuBox(
-                    expanded = equipMenuExpanded,
-                    onExpandedChange = { equipMenuExpanded = !equipMenuExpanded },
-                ) {
-                    OutlinedTextField(
-                        value = itemNameText,
-                        onValueChange = { itemNameText = it },
-                        label = { Text("Damaged Equipment *") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = equipMenuExpanded) },
-                        singleLine = true,
-                        modifier = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
-                    )
-                    ExposedDropdownMenu(expanded = equipMenuExpanded, onDismissRequest = { equipMenuExpanded = false }) {
-                        snapshot.items.forEach { eq ->
-                            DropdownMenuItem(
-                                text = { Text("${eq.name} (${eq.id} · ${eq.sku})") },
-                                onClick = {
-                                    itemIdText = eq.id
-                                    itemSkuText = eq.sku
-                                    itemNameText = eq.name
-                                    equipMenuExpanded = false
-                                },
-                            )
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Damaged Equipment *", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, color = LoyTextSecondary)
+                    ExposedDropdownMenuBox(
+                        expanded = equipMenuExpanded,
+                        onExpandedChange = { equipMenuExpanded = !equipMenuExpanded },
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = LoySurface,
+                            border = BorderStroke(1.dp, LoyBorder),
+                            modifier = Modifier
+                                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+                                .fillMaxWidth()
+                                .height(36.dp)
+                                .pointerHoverIcon(PointerIcon.Hand),
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Text(itemNameText.ifBlank { "Select equipment..." }, style = MaterialTheme.typography.bodySmall)
+                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = equipMenuExpanded)
+                            }
+                        }
+                        ExposedDropdownMenu(expanded = equipMenuExpanded, onDismissRequest = { equipMenuExpanded = false }) {
+                            snapshot.items.forEach { eq ->
+                                DropdownMenuItem(
+                                    text = { Text("${eq.name} (${eq.id} · ${eq.sku})") },
+                                    onClick = {
+                                        itemIdText = eq.id
+                                        itemSkuText = eq.sku
+                                        itemNameText = eq.name
+                                        equipMenuExpanded = false
+                                    },
+                                )
+                            }
                         }
                     }
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = itemIdText,
-                        onValueChange = { itemIdText = it },
-                        label = { Text("Equipment ID *") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f),
-                    )
-                    OutlinedTextField(
-                        value = itemSkuText,
-                        onValueChange = { itemSkuText = it },
-                        label = { Text("SKU") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f),
-                    )
+                    DesktopFormInput("Equipment ID *", itemIdText, { itemIdText = it }, modifier = Modifier.weight(1f))
+                    DesktopFormInput("SKU", itemSkuText, { itemSkuText = it }, modifier = Modifier.weight(1f))
                 }
 
-                OutlinedTextField(
-                    value = unitCodeText,
-                    onValueChange = { unitCodeText = it },
-                    label = { Text("Serialized QR Unit Tag (Optional)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                DesktopFormInput("Serialized QR Unit Tag (Optional)", unitCodeText, { unitCodeText = it })
                 if (matchingUnits.isNotEmpty()) {
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         items(matchingUnits, key = { it.id }) { u ->
-                            FilterChip(
+                            DesktopFilterPill(
+                                label = u.unitCode,
                                 selected = unitCodeText.equals(u.unitCode, ignoreCase = true),
                                 onClick = { unitCodeText = if (unitCodeText == u.unitCode) "" else u.unitCode },
-                                label = { Text(u.unitCode) },
                             )
                         }
                     }
@@ -1067,90 +966,68 @@ private fun DesktopDamageReportDialog(
                     }
                 }
 
-                Text("Severity", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("minor" to "Minor", "moderate" to "Moderate", "severe" to "Severe").forEach { (key, label) ->
-                        FilterChip(
-                            selected = severity == key,
-                            onClick = { severity = key },
-                            label = { Text(label) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = when (key) {
-                                    "severe" -> LoyErrorLight
-                                    "moderate" -> LoyWarningLight
-                                    else -> LoyInfoLight
-                                },
-                            ),
-                        )
-                    }
-                }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = customerNameText,
-                        onValueChange = { customerNameText = it },
-                        label = { Text("Customer / Renter") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1.2f),
-                    )
-                    OutlinedTextField(
-                        value = repairCostText,
-                        onValueChange = { repairCostText = it },
-                        label = { Text("Est. Repair ($sym)") },
-                        singleLine = true,
-                        modifier = Modifier.weight(0.8f),
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Severity", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, color = LoyTextSecondary)
+                    DesktopSegmentedControl(
+                        options = listOf("minor" to "Minor", "moderate" to "Moderate", "severe" to "Severe"),
+                        selected = severity,
+                        onSelect = { severity = it },
                     )
                 }
 
-                OutlinedTextField(
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DesktopFormInput("Customer / Renter", customerNameText, { customerNameText = it }, modifier = Modifier.weight(1.2f))
+                    DesktopFormInput("Est. Repair ($sym)", repairCostText, { repairCostText = it }, modifier = Modifier.weight(0.8f))
+                }
+
+                DesktopFormInput(
+                    label = "Damage Inspection Notes *",
                     value = notesText,
                     onValueChange = { notesText = it },
-                    label = { Text("Damage Inspection Notes *") },
-                    placeholder = { Text("Describe tear, bent frame, missing hardware, cleaning needed...") },
+                    singleLine = false,
                     minLines = 3,
-                    maxLines = 4,
-                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = "Describe tear, bent frame, missing hardware, cleaning needed...",
                 )
 
-                // Photo attachments
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text("Damage Photos (${photoPaths.size})", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-                    OutlinedButton(onClick = {
-                        val chooser = JFileChooser().apply {
-                            dialogTitle = "Attach Equipment Damage Photos"
-                            isMultiSelectionEnabled = true
-                            fileFilter = FileNameExtensionFilter("Images (jpg, png, webp, gif)", "jpg", "jpeg", "png", "webp", "gif")
-                        }
-                        if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
-                            val picked: List<File> = chooser.selectedFiles.toList().ifEmpty {
-                                listOfNotNull(chooser.selectedFile)
+                    DesktopSecondaryButton(
+                        text = "Attach Photo...",
+                        icon = Icons.Outlined.AddAPhoto,
+                        onClick = {
+                            val chooser = JFileChooser().apply {
+                                dialogTitle = "Attach Equipment Damage Photos"
+                                isMultiSelectionEnabled = true
+                                fileFilter = FileNameExtensionFilter("Images (jpg, png, webp, gif)", "jpg", "jpeg", "png", "webp", "gif")
                             }
-                            val saved = picked.mapNotNull { file ->
-                                runCatching { repository.saveDamagePhoto(file) }.getOrNull()
+                            if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+                                val picked: List<File> = chooser.selectedFiles.toList().ifEmpty {
+                                    listOfNotNull(chooser.selectedFile)
+                                }
+                                val saved = picked.mapNotNull { file ->
+                                    runCatching { repository.saveDamagePhoto(file) }.getOrNull()
+                                }
+                                photoPaths = (photoPaths + saved).distinct()
                             }
-                            photoPaths = (photoPaths + saved).distinct()
-                        }
-                    }) {
-                        Icon(Icons.Outlined.AddAPhoto, contentDescription = null, modifier = Modifier.size(15.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Attach Photo...")
-                    }
+                        },
+                    )
                 }
                 if (photoPaths.isNotEmpty()) {
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(photoPaths, key = { it }) { path ->
                             Box {
-                                DamagePhotoThumbnail(path = path, sizeDp = 76, onClick = {})
+                                DamagePhotoThumbnail(path = path, sizeDp = 74, onClick = {})
                                 Surface(
                                     shape = RoundedCornerShape(999.dp),
                                     color = LoyError,
                                     modifier = Modifier
                                         .align(Alignment.TopEnd)
                                         .size(20.dp)
+                                        .pointerHoverIcon(PointerIcon.Hand)
                                         .clickable { photoPaths = photoPaths.filterNot { it == path } },
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
@@ -1211,10 +1088,10 @@ private fun DamagePhotoThumbnail(
 ) {
     val bmp = rememberDesktopImageBitmap(path)
     Surface(
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(6.dp),
         color = LoyBackground,
         border = BorderStroke(1.dp, LoyBorder),
-        modifier = Modifier.size(sizeDp.dp).clickable(onClick = onClick),
+        modifier = Modifier.size(sizeDp.dp).pointerHoverIcon(PointerIcon.Hand).clickable(onClick = onClick),
     ) {
         if (bmp != null) {
             Image(

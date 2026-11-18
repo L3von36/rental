@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.room.withTransaction
 import com.loypos.app.core.DiscountInput
 import com.loypos.app.core.LowStockWorkScheduler
+import com.loypos.app.core.RentalReturnWorkScheduler
 import com.loypos.app.core.SaleTotals
 import com.loypos.app.core.computeTotals
 import com.loypos.app.core.formatQty
@@ -448,6 +449,9 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
             if (settings.lowStockAlertsEnabled) {
                 LowStockWorkScheduler.runImmediateCheck(getApplication())
             }
+            if (settings.returnReminderAlertsEnabled) {
+                RentalReturnWorkScheduler.scheduleForRental(getApplication(), completedSale.receipt)
+            }
             onCompleted(completedSale)
         }
     }
@@ -455,6 +459,9 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
     fun markRentalReturned(saleId: String) {
         viewModelScope.launch {
             val ok = repo.markRentalReturned(saleId)
+            if (ok) {
+                RentalReturnWorkScheduler.cancelForRental(getApplication(), saleId)
+            }
             _message.value = if (ok) {
                 "Equipment marked returned and stock restored"
             } else {
@@ -466,6 +473,7 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
     fun refundSale(saleId: String) {
         viewModelScope.launch {
             repo.refundReceipt(saleId)
+            RentalReturnWorkScheduler.cancelForRental(getApplication(), saleId)
             _message.value = "Rental refunded and equipment availability restored"
         }
     }

@@ -111,6 +111,9 @@ class LoyPosRepository(private val context: Context) {
             lowStockIntervalMinutes = (map["low_stock_interval_minutes"]?.toLongOrNull() ?: 15L).coerceAtLeast(15L),
             lowStockLastCheckAt = map["low_stock_last_check_at"]?.toLongOrNull() ?: 0L,
             lowStockLastCount = map["low_stock_last_count"]?.toIntOrNull() ?: 0,
+            returnReminderAlertsEnabled = map["return_reminder_alerts_enabled"] != "false",
+            returnReminderLastCheckAt = map["return_reminder_last_check_at"]?.toLongOrNull() ?: 0L,
+            returnReminderLastCount = map["return_reminder_last_count"]?.toIntOrNull() ?: 0,
             dailyRevenueTargetCents = (map["daily_revenue_target_cents"]?.toLongOrNull() ?: 0L).coerceAtLeast(0L),
             hasSeenWalkthrough = map["has_seen_walkthrough"] == "true",
         )
@@ -402,6 +405,19 @@ class LoyPosRepository(private val context: Context) {
     suspend fun saveLowStockCheckResult(checkedAt: Long, lowCount: Int) {
         saveSetting("low_stock_last_check_at", checkedAt.toString())
         saveSetting("low_stock_last_count", lowCount.coerceAtLeast(0).toString())
+    }
+
+    suspend fun saveReturnReminderSettings(enabled: Boolean) {
+        saveSetting("return_reminder_alerts_enabled", enabled.toString())
+    }
+
+    suspend fun saveReturnReminderCheckResult(checkedAt: Long, dueCount: Int) {
+        saveSetting("return_reminder_last_check_at", checkedAt.toString())
+        saveSetting("return_reminder_last_count", dueCount.coerceAtLeast(0).toString())
+    }
+
+    suspend fun saveReturnReminderNotifiedTokens(encoded: String) {
+        saveSetting("return_reminder_notified_tokens", encoded)
     }
 
     suspend fun saveDailyRevenueTarget(targetCents: Long) {
@@ -1818,6 +1834,7 @@ class LoyPosRepository(private val context: Context) {
             "low_stock_alerts_enabled",
             "low_stock_threshold",
             "low_stock_interval_minutes",
+            "return_reminder_alerts_enabled",
             "daily_revenue_target_cents",
             "active_branch",
         )

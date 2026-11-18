@@ -552,6 +552,9 @@ data class SettingsModel(
     val lowStockIntervalMinutes: Long = 15L,
     val lowStockLastCheckAt: Long = 0L,
     val lowStockLastCount: Int = 0,
+    val returnReminderAlertsEnabled: Boolean = true,
+    val returnReminderLastCheckAt: Long = 0L,
+    val returnReminderLastCount: Int = 0,
     val dailyRevenueTargetCents: Long = 0L,
     val hasSeenWalkthrough: Boolean = false,
 )

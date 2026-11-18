@@ -3,6 +3,9 @@ package com.loypos.desktop.ui
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -30,7 +34,6 @@ import androidx.compose.material.icons.automirrored.outlined.ReceiptLong
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.CalendarMonth
-import androidx.compose.material.icons.outlined.Clear
 import androidx.compose.material.icons.outlined.CreditCard
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Event
@@ -39,23 +42,17 @@ import androidx.compose.material.icons.outlined.LocalOffer
 import androidx.compose.material.icons.outlined.Payments
 import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.Remove
-import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -69,8 +66,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.loypos.desktop.core.checkCartAvailabilityConflicts
@@ -109,6 +109,7 @@ fun RentDeskView(
     val sym = snapshot.settings.currencySymbol
     var search by remember { mutableStateOf("") }
     var selectedCategoryId by remember { mutableStateOf<String?>(null) }
+    var viewMode by remember { mutableIntStateOf(0) } // 0 = Grid, 1 = Table
 
     var cartLines by remember { mutableStateOf<List<DesktopCartLine>>(emptyList()) }
     var rentalDays by remember { mutableIntStateOf(1) }
@@ -254,69 +255,57 @@ fun RentDeskView(
     }
 
     Row(modifier = Modifier.fillMaxSize().background(LoyBackground)) {
-        // Left Equipment Catalog Panel
+        // Left Equipment Catalog Workspace
         Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
             Surface(color = LoySurface) {
                 Column(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(9.dp),
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        OutlinedTextField(
+                        DesktopSearchInput(
                             value = search,
                             onValueChange = { search = it },
-                            placeholder = { Text("Search tents, chairs, lights, sound, SKU...") },
-                            leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-                            trailingIcon = {
-                                if (search.isNotEmpty()) {
-                                    IconButton(onClick = { search = "" }) {
-                                        Icon(Icons.Outlined.Clear, contentDescription = "Clear search")
-                                    }
-                                }
-                            },
-                            singleLine = true,
+                            placeholder = "Search tents, chairs, lighting, sound, SKU...",
                             modifier = Modifier.weight(1f),
                         )
+                        DesktopSegmentedControl(
+                            options = listOf(0 to "Grid", 1 to "Table"),
+                            selected = viewMode,
+                            onSelect = { viewMode = it },
+                        )
                         if (snapshot.heldQuotes.isNotEmpty()) {
-                            OutlinedButton(onClick = { showQuotesDialog = true }) {
-                                Icon(Icons.Outlined.BookmarkBorder, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("Held Quotes (${snapshot.heldQuotes.size})")
-                            }
+                            DesktopSecondaryButton(
+                                text = "Quotes (${snapshot.heldQuotes.size})",
+                                icon = Icons.Outlined.BookmarkBorder,
+                                onClick = { showQuotesDialog = true },
+                            )
                         }
-                        OutlinedButton(onClick = onOpenSchedule) {
-                            Icon(Icons.Outlined.CalendarMonth, contentDescription = null, modifier = Modifier.size(16.dp), tint = LoyGreenDark)
-                            Spacer(Modifier.width(6.dp))
-                            Text("Calendar")
-                        }
+                        DesktopSecondaryButton(
+                            text = "Calendar",
+                            icon = Icons.Outlined.CalendarMonth,
+                            onClick = onOpenSchedule,
+                        )
                     }
 
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         item {
-                            FilterChip(
+                            DesktopFilterPill(
+                                label = "All (${snapshot.items.size})",
                                 selected = selectedCategoryId == null,
                                 onClick = { selectedCategoryId = null },
-                                label = { Text("All (${snapshot.items.size})") },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = LoyGreenLight,
-                                    selectedLabelColor = LoyGreenDark,
-                                ),
                             )
                         }
                         items(snapshot.categories, key = { it.id }) { cat ->
                             val sel = selectedCategoryId == cat.id
-                            FilterChip(
+                            DesktopFilterPill(
+                                label = cat.name,
                                 selected = sel,
                                 onClick = { selectedCategoryId = if (sel) null else cat.id },
-                                label = { Text(cat.name) },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = LoyGreenLight,
-                                    selectedLabelColor = LoyGreenDark,
-                                ),
                             )
                         }
                     }
@@ -331,8 +320,8 @@ fun RentDeskView(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
-                                Icon(Icons.Outlined.Layers, contentDescription = null, tint = LoyGreenDark, modifier = Modifier.size(16.dp))
-                                Text("Event Kits:", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = LoyGreenDark)
+                                Icon(Icons.Outlined.Layers, contentDescription = null, tint = LoyGreenDark, modifier = Modifier.size(14.dp))
+                                Text("Quick Kits:", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = LoyGreenDark)
                             }
                             LazyRow(
                                 modifier = Modifier.weight(1f),
@@ -340,17 +329,21 @@ fun RentDeskView(
                             ) {
                                 items(snapshot.eventKits, key = { it.id }) { kit ->
                                     Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = LoyGreenLight.copy(alpha = 0.65f),
-                                        border = BorderStroke(1.dp, LoyGreen.copy(alpha = 0.35f)),
-                                        modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { addEventKit(kit) },
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = LoyGreenLight,
+                                        border = BorderStroke(1.dp, LoyGreen.copy(alpha = 0.28f)),
+                                        modifier = Modifier
+                                            .height(26.dp)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .pointerHoverIcon(PointerIcon.Hand)
+                                            .clickable { addEventKit(kit) },
                                     ) {
                                         Row(
-                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                            modifier = Modifier.padding(horizontal = 8.dp),
                                             verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
                                         ) {
-                                            Icon(Icons.Outlined.Add, contentDescription = null, tint = LoyGreenDark, modifier = Modifier.size(14.dp))
+                                            Icon(Icons.Outlined.Add, contentDescription = null, tint = LoyGreenDark, modifier = Modifier.size(13.dp))
                                             Text(kit.name, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, color = LoyGreenDark)
                                             if (kit.discountPercent > 0.0) {
                                                 Text("-${formatQty(kit.discountPercent)}%", style = MaterialTheme.typography.labelSmall, color = LoyInfo, fontWeight = FontWeight.Bold)
@@ -359,377 +352,410 @@ fun RentDeskView(
                                     }
                                 }
                             }
-                            TextButton(onClick = onOpenEventKits, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) {
-                                Text("Manage Kits", style = MaterialTheme.typography.labelSmall)
-                            }
+                            Text(
+                                text = "Manage Kits",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = LoyGreenDark,
+                                modifier = Modifier
+                                    .pointerHoverIcon(PointerIcon.Hand)
+                                    .clickable(onClick = onOpenEventKits),
+                            )
                         }
                     }
                 }
             }
             HorizontalDivider(color = LoyBorder)
 
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 205.dp),
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                contentPadding = PaddingValues(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                items(filteredEquipment, key = { it.id }) { item ->
-                    val inCartQty = cartLines.firstOrNull { it.itemId == item.id }?.qty ?: 0.0
-                    val remaining = (item.stock - inCartQty).coerceAtLeast(0.0)
-                    val out = item.trackStock && remaining <= 0.0
-                    val accent = categoryTileAccent(item.categoryId)
+            if (viewMode == 0) {
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 198.dp),
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    contentPadding = PaddingValues(14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    items(filteredEquipment, key = { it.id }) { item ->
+                        val inCartQty = cartLines.firstOrNull { it.itemId == item.id }?.qty ?: 0.0
+                        val remaining = (item.stock - inCartQty).coerceAtLeast(0.0)
+                        val out = item.trackStock && remaining <= 0.0
+                        val accent = categoryTileAccent(item.categoryId)
+                        val interaction = remember { MutableInteractionSource() }
+                        val hovered by interaction.collectIsHoveredAsState()
 
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = LoySurface,
-                        border = BorderStroke(1.dp, if (inCartQty > 0.0) LoyGreen else LoyBorder),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable(enabled = !out) { addEquipment(item) },
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(accent.copy(alpha = 0.14f))
-                                        .padding(horizontal = 7.dp, vertical = 2.dp),
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (inCartQty > 0.0) LoyGreenLight.copy(alpha = 0.25f) else LoySurface,
+                            border = BorderStroke(
+                                width = if (inCartQty > 0.0) 1.5.dp else 1.dp,
+                                color = when {
+                                    inCartQty > 0.0 -> LoyGreen
+                                    hovered && !out -> LoyBorderStrong
+                                    else -> LoyBorder
+                                },
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .hoverable(interaction)
+                                .then(if (!out) Modifier.pointerHoverIcon(PointerIcon.Hand) else Modifier)
+                                .clickable(enabled = !out) { addEquipment(item) },
+                        ) {
+                            Column {
+                                Box(modifier = Modifier.fillMaxWidth().height(3.dp).background(accent))
+                                Column(
+                                    modifier = Modifier.padding(11.dp),
+                                    verticalArrangement = Arrangement.spacedBy(7.dp),
                                 ) {
-                                    Text(
-                                        text = item.sku.ifEmpty { "EQUIP" },
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = accent,
-                                        fontWeight = FontWeight.SemiBold,
-                                    )
-                                }
-                                if (inCartQty > 0.0) {
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(999.dp))
-                                            .background(LoyGreen)
-                                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically,
                                     ) {
                                         Text(
-                                            text = "${formatQty(inCartQty)} added",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = Color.White,
+                                            text = item.sku.ifEmpty { "EQUIP" },
+                                            style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                                            color = LoyTextMuted,
+                                        )
+                                        if (inCartQty > 0.0) {
+                                            DesktopBadge("${formatQty(inCartQty)} in order", LoyGreenLight, LoyGreenDark)
+                                        }
+                                    }
+                                    Text(
+                                        text = item.name,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = LoyTextPrimary,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.height(36.dp),
+                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(
+                                            text = "${formatCents(item.priceCents, sym)}/d",
+                                            style = TabularMoneyStyle.merge(MaterialTheme.typography.titleSmall),
+                                            color = LoyGreenDark,
                                             fontWeight = FontWeight.Bold,
                                         )
+                                        Text(
+                                            text = if (out) "Out" else if (!item.trackStock) "Unlim." else "${formatQty(remaining)} free",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = if (out) LoyError else LoyTextSecondary,
+                                            fontWeight = FontWeight.Medium,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                // High-Speed Dense Table Mode
+                DesktopTableHeaderRow {
+                    DesktopTableHeaderText("SKU", Modifier.width(86.dp))
+                    DesktopTableHeaderText("Equipment", Modifier.weight(1.6f))
+                    DesktopTableHeaderText("Daily Rate", Modifier.width(88.dp))
+                    DesktopTableHeaderText("Free", Modifier.width(80.dp))
+                    DesktopTableHeaderText("In Cart", Modifier.width(72.dp))
+                }
+                LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth().background(LoySurface)) {
+                    items(filteredEquipment, key = { it.id }) { item ->
+                        val inCartQty = cartLines.firstOrNull { it.itemId == item.id }?.qty ?: 0.0
+                        val remaining = (item.stock - inCartQty).coerceAtLeast(0.0)
+                        val out = item.trackStock && remaining <= 0.0
+                        DesktopTableRow(
+                            selected = inCartQty > 0.0,
+                            onClick = if (!out) ({ addEquipment(item) }) else null,
+                        ) {
+                            Text(
+                                text = item.sku.ifBlank { item.id },
+                                style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                                color = LoyTextMuted,
+                                modifier = Modifier.width(86.dp),
+                            )
+                            Text(
+                                text = item.name,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1.6f),
+                            )
+                            Text(
+                                text = "${formatCents(item.priceCents, sym)}/d",
+                                style = TabularMoneyStyle.merge(MaterialTheme.typography.bodySmall),
+                                fontWeight = FontWeight.Bold,
+                                color = LoyGreenDark,
+                                modifier = Modifier.width(88.dp),
+                            )
+                            Text(
+                                text = if (out) "0" else if (!item.trackStock) "Unlim." else formatQty(remaining),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (out) LoyError else LoyTextSecondary,
+                                modifier = Modifier.width(80.dp),
+                            )
+                            Box(modifier = Modifier.width(72.dp), contentAlignment = Alignment.CenterEnd) {
+                                if (inCartQty > 0.0) {
+                                    DesktopBadge("${formatQty(inCartQty)}×", LoyGreenLight, LoyGreenDark)
+                                } else if (!out) {
+                                    Text("+ Add", style = MaterialTheme.typography.labelSmall, color = LoyGreenDark, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        VerticalDivider(color = LoyBorder)
+
+        // Right 396.dp Rental Booking Docket
+        Column(
+            modifier = Modifier.width(396.dp).fillMaxHeight().background(LoySurface),
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Booking Docket", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    if (cartLines.isNotEmpty()) {
+                        DesktopSecondaryButton(
+                            text = "Clear",
+                            icon = Icons.Outlined.DeleteOutline,
+                            contentColor = LoyError,
+                            onClick = { clearDesk() },
+                        )
+                    }
+                }
+
+                // Pickup & Duration Control Box
+                val dueStr = formatShortDate(rentalStartMs + rentalDays * 86_400_000L)
+                val startStr = formatShortDate(rentalStartMs)
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = LoySurfaceHover,
+                    border = BorderStroke(1.dp, LoyBorder),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "$startStr → $dueStr ($rentalDays ${if (rentalDays == 1) "day" else "days"})",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = LoyGreenDark,
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                DocketStepButton(Icons.Outlined.Remove) { if (rentalDays > 1) rentalDays-- }
+                                DocketStepButton(Icons.Outlined.Add) { rentalDays = (rentalDays + 1).coerceAtMost(365) }
+                            }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            listOf(1, 2, 3, 7, 14).forEach { preset ->
+                                DesktopFilterPill(
+                                    label = "${preset}d",
+                                    selected = rentalDays == preset,
+                                    onClick = { rentalDays = preset },
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DesktopSecondaryButton(
+                        text = selectedClient?.name ?: "Select Client",
+                        icon = Icons.Outlined.PersonOutline,
+                        onClick = { showClientDialog = true },
+                        modifier = Modifier.weight(1f),
+                    )
+                    DesktopSecondaryButton(
+                        text = eventName.ifEmpty { "Event / Deposit" },
+                        icon = Icons.Outlined.Event,
+                        onClick = { showEventDialog = true },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+            HorizontalDivider(color = LoyBorder)
+
+            // Cart Lines Table
+            if (syncedLines.isEmpty()) {
+                DesktopEmptyState(
+                    icon = Icons.AutoMirrored.Outlined.ReceiptLong,
+                    title = "Empty Booking Docket",
+                    subtitle = "Click equipment cards or add a quick kit to begin.",
+                    modifier = Modifier.weight(1f),
+                )
+            } else {
+                DesktopTableHeaderRow {
+                    DesktopTableHeaderText("Item", Modifier.weight(1.3f))
+                    DesktopTableHeaderText("Qty", Modifier.width(74.dp))
+                    DesktopTableHeaderText("Subtotal", Modifier.width(76.dp))
+                }
+                LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    items(syncedLines, key = { it.itemId }) { line ->
+                        val equip = snapshot.items.firstOrNull { it.id == line.itemId }
+                        DesktopTableRow {
+                            Column(modifier = Modifier.weight(1.3f)) {
+                                Text(
+                                    text = line.name,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    text = "${formatCents(line.dailyRateCents, sym)}/d × ${line.rentalDays}d",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = LoyTextMuted,
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.width(74.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                DocketStepButton(Icons.Outlined.Remove) {
+                                    cartLines = if (line.qty <= 1.0) {
+                                        cartLines.filterNot { it.itemId == line.itemId }
+                                    } else {
+                                        cartLines.map { if (it.itemId == line.itemId) it.copy(qty = it.qty - 1.0) else it }
+                                    }
+                                }
+                                Text(
+                                    text = formatQty(line.qty),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.width(20.dp),
+                                )
+                                DocketStepButton(Icons.Outlined.Add) {
+                                    val max = equip?.stock ?: 9999.0
+                                    if (equip?.trackStock == true && line.qty + 1.0 > max) {
+                                        onToast("Max available units: ${formatQty(max)}")
+                                    } else {
+                                        cartLines = cartLines.map {
+                                            if (it.itemId == line.itemId) it.copy(qty = it.qty + 1.0) else it
+                                        }
                                     }
                                 }
                             }
                             Text(
-                                text = item.name,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = LoyTextPrimary,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
+                                text = formatCents(line.lineTotalCents, sym),
+                                style = TabularMoneyStyle.merge(MaterialTheme.typography.bodySmall),
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.End,
+                                modifier = Modifier.width(76.dp),
                             )
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(
-                                    text = "${formatCents(item.priceCents, sym)}/d",
-                                    style = TabularMoneyStyle.merge(MaterialTheme.typography.titleSmall),
-                                    color = LoyGreenDark,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                                Text(
-                                    text = if (out) "Rented out" else "${formatQty(remaining)} avail",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = if (out) LoyError else LoyTextSecondary,
-                                    fontWeight = FontWeight.Medium,
-                                )
-                            }
                         }
                     }
                 }
             }
-        }
 
-        // Right Rental Booking Panel
-        Surface(
-            color = LoySurface,
-            border = BorderStroke(1.dp, LoyBorder),
-            modifier = Modifier.width(420.dp).fillMaxHeight(),
-        ) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                // Header + Client & Event chips
-                Column(
-                    modifier = Modifier.fillMaxWidth().padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = "Rental Booking",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                        )
-                        if (cartLines.isNotEmpty()) {
-                            TextButton(onClick = { clearDesk() }) {
-                                Icon(Icons.Outlined.DeleteOutline, contentDescription = null, modifier = Modifier.size(16.dp), tint = LoyError)
-                                Spacer(Modifier.width(4.dp))
-                                Text("Clear", color = LoyError)
-                            }
-                        }
-                    }
-
-                    // Duration & Pickup Date Bar
-                    val dueStr = formatShortDate(rentalStartMs + rentalDays * 86_400_000L)
-                    val startStr = formatShortDate(rentalStartMs)
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = LoyGreenLight.copy(alpha = 0.65f),
-                        border = BorderStroke(1.dp, LoyGreen.copy(alpha = 0.25f)),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(
-                                    text = "$startStr → $dueStr · $rentalDays ${if (rentalDays == 1) "day" else "days"}",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = LoyGreenDark,
-                                    fontWeight = FontWeight.SemiBold,
-                                )
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    IconButton(
-                                        onClick = { if (rentalDays > 1) rentalDays-- },
-                                        modifier = Modifier.size(28.dp),
-                                    ) {
-                                        Icon(Icons.Outlined.Remove, contentDescription = "Decrease days", modifier = Modifier.size(16.dp))
-                                    }
-                                    IconButton(
-                                        onClick = { rentalDays = (rentalDays + 1).coerceAtMost(365) },
-                                        modifier = Modifier.size(28.dp),
-                                    ) {
-                                        Icon(Icons.Outlined.Add, contentDescription = "Increase days", modifier = Modifier.size(16.dp))
-                                    }
-                                }
-                            }
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                listOf(1, 2, 3, 7, 14).forEach { preset ->
-                                    FilterChip(
-                                        selected = rentalDays == preset,
-                                        onClick = { rentalDays = preset },
-                                        label = { Text("${preset}d") },
-                                        modifier = Modifier.height(28.dp),
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(
-                            onClick = { showClientDialog = true },
-                            modifier = Modifier.weight(1f),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                        ) {
-                            Icon(Icons.Outlined.PersonOutline, contentDescription = null, modifier = Modifier.size(15.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text(selectedClient?.name ?: "Select Client", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                        OutlinedButton(
-                            onClick = { showEventDialog = true },
-                            modifier = Modifier.weight(1f),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                        ) {
-                            Icon(Icons.Outlined.Event, contentDescription = null, modifier = Modifier.size(15.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text(eventName.ifEmpty { "Event & Deposit" }, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                    }
+            // Financial Footer
+            HorizontalDivider(color = LoyBorder)
+            Column(
+                modifier = Modifier.fillMaxWidth().background(LoySurfaceHover).padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Rental Subtotal", color = LoyTextSecondary, style = MaterialTheme.typography.bodySmall)
+                    Text(formatCents(calc.subtotalCents, sym), style = TabularMoneyStyle.merge(MaterialTheme.typography.bodySmall))
                 }
-                HorizontalDivider(color = LoyBorder)
-
-                // Cart Lines
-                if (syncedLines.isEmpty()) {
-                    Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Icon(Icons.AutoMirrored.Outlined.ReceiptLong, contentDescription = null, tint = LoyTextSecondary, modifier = Modifier.size(34.dp))
-                            Text("No equipment selected", style = MaterialTheme.typography.titleSmall, color = LoyTextSecondary)
-                            Text("Click tools on the left to add them to this rental.", style = MaterialTheme.typography.bodySmall, color = LoyTextSecondary)
-                        }
-                    }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.weight(1f).fillMaxWidth(),
-                        contentPadding = PaddingValues(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        items(syncedLines, key = { it.itemId }) { line ->
-                            val equip = snapshot.items.firstOrNull { it.id == line.itemId }
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = LoyBackground,
-                                border = BorderStroke(1.dp, LoyBorder),
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(line.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                                        Text(
-                                            "${formatQty(line.qty)} × ${formatCents(line.dailyRateCents, sym)}/d × ${line.rentalDays}d",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = LoyTextSecondary,
-                                        )
-                                    }
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        IconButton(
-                                            onClick = {
-                                                cartLines = if (line.qty <= 1.0) {
-                                                    cartLines.filterNot { it.itemId == line.itemId }
-                                                } else {
-                                                    cartLines.map { if (it.itemId == line.itemId) it.copy(qty = it.qty - 1.0) else it }
-                                                }
-                                            },
-                                            modifier = Modifier.size(30.dp),
-                                        ) {
-                                            Icon(Icons.Outlined.Remove, contentDescription = "Decrease qty", modifier = Modifier.size(16.dp))
-                                        }
-                                        Text(formatQty(line.qty), fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 4.dp))
-                                        IconButton(
-                                            onClick = {
-                                                val max = equip?.stock ?: 9999.0
-                                                if (equip?.trackStock == true && line.qty + 1.0 > max) {
-                                                    onToast("Max available units: ${formatQty(max)}")
-                                                } else {
-                                                    cartLines = cartLines.map {
-                                                        if (it.itemId == line.itemId) it.copy(qty = it.qty + 1.0) else it
-                                                    }
-                                                }
-                                            },
-                                            modifier = Modifier.size(30.dp),
-                                        ) {
-                                            Icon(Icons.Outlined.Add, contentDescription = "Increase qty", modifier = Modifier.size(16.dp))
-                                        }
-                                    }
-                                    Text(
-                                        text = formatCents(line.lineTotalCents, sym),
-                                        style = TabularMoneyStyle.merge(MaterialTheme.typography.bodyMedium),
-                                        fontWeight = FontWeight.Bold,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Bottom Summary & Action Buttons
-                HorizontalDivider(color = LoyBorder)
-                Column(
-                    modifier = Modifier.fillMaxWidth().padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
+                if (calc.discountCents > 0L) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Rental Subtotal", color = LoyTextSecondary, style = MaterialTheme.typography.bodySmall)
-                        Text(formatCents(calc.subtotalCents, sym), style = TabularMoneyStyle.merge(MaterialTheme.typography.bodySmall))
-                    }
-                    if (calc.discountCents > 0L) {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Discount", color = LoyGreen, style = MaterialTheme.typography.bodySmall)
-                            Text("-${formatCents(calc.discountCents, sym)}", color = LoyGreen, style = TabularMoneyStyle.merge(MaterialTheme.typography.bodySmall))
-                        }
-                    }
-                    if (calc.taxCents > 0L) {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Tax (${formatQty(snapshot.settings.taxRatePercent)}%)", color = LoyTextSecondary, style = MaterialTheme.typography.bodySmall)
-                            Text(formatCents(calc.taxCents, sym), style = TabularMoneyStyle.merge(MaterialTheme.typography.bodySmall))
-                        }
-                    }
-                    if (depositCents > 0L) {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Security Deposit (Refundable)", color = LoyInfo, style = MaterialTheme.typography.bodySmall)
-                            Text(formatCents(depositCents, sym), color = LoyInfo, style = TabularMoneyStyle.merge(MaterialTheme.typography.bodySmall))
-                        }
-                    }
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Text("Total Due", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text(
-                            formatCents(calc.totalCents, sym),
-                            style = TabularMoneyStyle.merge(MaterialTheme.typography.titleLarge),
-                            color = LoyGreenDark,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(
-                            onClick = { showDiscountDialog = true },
-                            modifier = Modifier.weight(1f),
-                            enabled = cartLines.isNotEmpty(),
-                        ) {
-                            Icon(Icons.Outlined.LocalOffer, contentDescription = null, modifier = Modifier.size(15.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Discount")
-                        }
-                        OutlinedButton(
-                            onClick = {
-                                val title = eventName.ifBlank { selectedClient?.name ?: "Quote ${formatShortDate(nowMs())}" }
-                                repository.holdQuote(
-                                    DesktopHeldQuote(
-                                        id = newId(),
-                                        name = title,
-                                        createdAt = nowMs(),
-                                        rentalDays = rentalDays,
-                                        customerId = selectedClient?.id,
-                                        customerName = selectedClient?.name,
-                                        eventName = eventName,
-                                        eventVenue = eventVenue,
-                                        depositCents = depositCents,
-                                        discountPercent = discountPercent,
-                                        discountCents = fixedDiscountCents,
-                                        note = note,
-                                        lines = syncedLines,
-                                    )
-                                )
-                                clearDesk()
-                                onToast("Held quote \"$title\"")
-                            },
-                            modifier = Modifier.weight(1f),
-                            enabled = cartLines.isNotEmpty(),
-                        ) {
-                            Icon(Icons.Outlined.BookmarkBorder, contentDescription = null, modifier = Modifier.size(15.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Hold Quote")
-                        }
-                    }
-
-                    Button(
-                        onClick = { showCheckoutDialog = true },
-                        enabled = cartLines.isNotEmpty(),
-                        modifier = Modifier.fillMaxWidth().height(46.dp),
-                    ) {
-                        Text("Book & Collect Payment · ${formatCents(calc.totalCents, sym)}", fontWeight = FontWeight.Bold)
+                        Text("Discount", color = LoyGreenDark, style = MaterialTheme.typography.bodySmall)
+                        Text("-${formatCents(calc.discountCents, sym)}", color = LoyGreenDark, style = TabularMoneyStyle.merge(MaterialTheme.typography.bodySmall))
                     }
                 }
+                if (calc.taxCents > 0L) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Tax (${formatQty(snapshot.settings.taxRatePercent)}%)", color = LoyTextSecondary, style = MaterialTheme.typography.bodySmall)
+                        Text(formatCents(calc.taxCents, sym), style = TabularMoneyStyle.merge(MaterialTheme.typography.bodySmall))
+                    }
+                }
+                if (depositCents > 0L) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Security Deposit", color = LoyInfo, style = MaterialTheme.typography.bodySmall)
+                        Text(formatCents(depositCents, sym), color = LoyInfo, style = TabularMoneyStyle.merge(MaterialTheme.typography.bodySmall))
+                    }
+                }
+                HorizontalDivider(color = LoyBorder)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Total Due", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Text(
+                        formatCents(calc.totalCents, sym),
+                        style = TabularMoneyStyle.merge(MaterialTheme.typography.titleLarge),
+                        color = LoyGreenDark,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DesktopSecondaryButton(
+                        text = "Discount",
+                        icon = Icons.Outlined.LocalOffer,
+                        enabled = cartLines.isNotEmpty(),
+                        onClick = { showDiscountDialog = true },
+                        modifier = Modifier.weight(1f),
+                    )
+                    DesktopSecondaryButton(
+                        text = "Hold Quote",
+                        icon = Icons.Outlined.BookmarkBorder,
+                        enabled = cartLines.isNotEmpty(),
+                        onClick = {
+                            val title = eventName.ifBlank { selectedClient?.name ?: "Quote ${formatShortDate(nowMs())}" }
+                            repository.holdQuote(
+                                DesktopHeldQuote(
+                                    id = newId(),
+                                    name = title,
+                                    createdAt = nowMs(),
+                                    rentalDays = rentalDays,
+                                    customerId = selectedClient?.id,
+                                    customerName = selectedClient?.name,
+                                    eventName = eventName,
+                                    eventVenue = eventVenue,
+                                    depositCents = depositCents,
+                                    discountPercent = discountPercent,
+                                    discountCents = fixedDiscountCents,
+                                    note = note,
+                                    lines = syncedLines,
+                                )
+                            )
+                            clearDesk()
+                            onToast("Held quote \"$title\"")
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+
+                DesktopPrimaryButton(
+                    text = "Book & Collect Payment · ${formatCents(calc.totalCents, sym)}",
+                    enabled = cartLines.isNotEmpty(),
+                    onClick = { showCheckoutDialog = true },
+                    modifier = Modifier.fillMaxWidth().height(38.dp),
+                )
             }
         }
     }
 
-    // Dialogs
     if (showClientDialog) {
         ClientPickerDialog(
             clients = snapshot.clients,
@@ -780,40 +806,48 @@ fun RentDeskView(
                     snapshot.heldQuotes.forEach { q ->
                         val qTotal = q.lines.sumOf { it.lineTotalCents }
                         Surface(
-                            shape = RoundedCornerShape(10.dp),
+                            shape = RoundedCornerShape(8.dp),
                             color = LoyBackground,
                             border = BorderStroke(1.dp, LoyBorder),
-                            modifier = Modifier.fillMaxWidth().clickable {
-                                cartLines = q.lines
-                                rentalDays = q.rentalDays
-                                selectedClientId = q.customerId
-                                eventName = q.eventName
-                                eventVenue = q.eventVenue
-                                depositCents = q.depositCents
-                                discountPercent = q.discountPercent
-                                fixedDiscountCents = q.discountCents
-                                note = q.note
-                                repository.deleteQuote(q.id)
-                                showQuotesDialog = false
-                                onToast("Resumed \"${q.name}\"")
-                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .pointerHoverIcon(PointerIcon.Hand)
+                                .clickable {
+                                    cartLines = q.lines
+                                    rentalDays = q.rentalDays
+                                    selectedClientId = q.customerId
+                                    eventName = q.eventName
+                                    eventVenue = q.eventVenue
+                                    depositCents = q.depositCents
+                                    discountPercent = q.discountPercent
+                                    fixedDiscountCents = q.discountCents
+                                    note = q.note
+                                    repository.deleteQuote(q.id)
+                                    showQuotesDialog = false
+                                    onToast("Resumed \"${q.name}\"")
+                                },
                         ) {
                             Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(q.name, fontWeight = FontWeight.SemiBold)
                                     Text("${q.lines.size} items · ${q.rentalDays}d · ${formatCents(qTotal, sym)}", style = MaterialTheme.typography.bodySmall, color = LoyTextSecondary)
                                 }
-                                IconButton(onClick = { repository.deleteQuote(q.id) }) {
-                                    Icon(Icons.Outlined.DeleteOutline, contentDescription = "Delete quote", tint = LoyError)
-                                }
+                                Text(
+                                    text = "Delete",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = LoyError,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier
+                                        .pointerHoverIcon(PointerIcon.Hand)
+                                        .clickable { repository.deleteQuote(q.id) }
+                                        .padding(6.dp),
+                                )
                             }
                         }
                     }
                 }
             },
-            confirmButton = {
-                TextButton(onClick = { showQuotesDialog = false }) { Text("Close") }
-            },
+            confirmButton = { TextButton(onClick = { showQuotesDialog = false }) { Text("Close") } },
         )
     }
 
@@ -863,7 +897,7 @@ fun RentDeskView(
             onDismissRequest = { completedOrderReceipt = null },
             title = { Text("Rental Confirmed · #${order.number.toString().padStart(4, '0')}") },
             text = {
-                Surface(color = LoyBackground, shape = RoundedCornerShape(10.dp), border = BorderStroke(1.dp, LoyBorder)) {
+                Surface(color = LoyBackground, shape = RoundedCornerShape(8.dp), border = BorderStroke(1.dp, LoyBorder)) {
                     Text(
                         text = receiptText,
                         fontFamily = FontFamily.Monospace,
@@ -872,10 +906,29 @@ fun RentDeskView(
                     )
                 }
             },
-            confirmButton = {
-                Button(onClick = { completedOrderReceipt = null }) { Text("New Rental") }
-            },
+            confirmButton = { Button(onClick = { completedOrderReceipt = null }) { Text("Done") } },
         )
+    }
+}
+
+@Composable
+private fun DocketStepButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit,
+) {
+    Surface(
+        shape = RoundedCornerShape(4.dp),
+        color = LoySurface,
+        border = BorderStroke(1.dp, LoyBorderStrong),
+        modifier = Modifier
+            .size(22.dp)
+            .clip(RoundedCornerShape(4.dp))
+            .pointerHoverIcon(PointerIcon.Hand)
+            .clickable(onClick = onClick),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = null, tint = LoyTextSecondary, modifier = Modifier.size(13.dp))
+        }
     }
 }
 
@@ -890,16 +943,14 @@ private fun ClientPickerDialog(
         onDismissRequest = onDismiss,
         title = { Text("Assign Client / Organizer") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.width(380.dp)) {
-                TextButton(onClick = { onSelect(null) }) {
-                    Text("Walk-in Client (None)")
-                }
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.width(380.dp).heightIn(max = 380.dp).verticalScroll(rememberScrollState())) {
+                TextButton(onClick = { onSelect(null) }) { Text("Walk-in Client (None)") }
                 clients.forEach { c ->
                     Surface(
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(6.dp),
                         color = if (c.id == selectedClientId) LoyGreenLight else LoyBackground,
                         border = BorderStroke(1.dp, if (c.id == selectedClientId) LoyGreen else LoyBorder),
-                        modifier = Modifier.fillMaxWidth().clickable { onSelect(c) },
+                        modifier = Modifier.fillMaxWidth().pointerHoverIcon(PointerIcon.Hand).clickable { onSelect(c) },
                     ) {
                         Column(modifier = Modifier.padding(10.dp)) {
                             Text(c.name, fontWeight = FontWeight.SemiBold)
@@ -911,9 +962,7 @@ private fun ClientPickerDialog(
                 }
             }
         },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Close") }
-        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
     )
 }
 
@@ -936,26 +985,15 @@ private fun EventAndDepositDialog(
         onDismissRequest = onDismiss,
         title = { Text("Event Details & Security Deposit") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.width(400.dp)) {
-                OutlinedTextField(value = ev, onValueChange = { ev = it }, label = { Text("Event name (e.g. Summer Gala)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = vn, onValueChange = { vn = it }, label = { Text("Venue / Delivery location") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(
-                    value = dep,
-                    onValueChange = { dep = it },
-                    label = { Text("Refundable deposit ($currencySymbol)") },
-                    leadingIcon = { Icon(Icons.Outlined.Security, contentDescription = null) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(value = nt, onValueChange = { nt = it }, label = { Text("Dispatch note") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.width(400.dp)) {
+                DesktopFormInput("Event Name", ev, { ev = it }, placeholder = "e.g. Summer Gala")
+                DesktopFormInput("Venue / Delivery Location", vn, { vn = it })
+                DesktopFormInput("Refundable Deposit ($currencySymbol)", dep, { dep = it })
+                DesktopFormInput("Dispatch Note", nt, { nt = it })
             }
         },
-        confirmButton = {
-            Button(onClick = { onSave(ev, vn, parseAmountToCents(dep) ?: 0L, nt) }) { Text("Save") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        },
+        confirmButton = { Button(onClick = { onSave(ev, vn, parseAmountToCents(dep) ?: 0L, nt) }) { Text("Save") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
 
@@ -974,18 +1012,18 @@ private fun DiscountDialog(
         onDismissRequest = onDismiss,
         title = { Text("Rental Discount") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.width(360.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.width(360.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf(5.0, 10.0, 15.0, 20.0).forEach { p ->
-                        FilterChip(
+                        DesktopFilterPill(
+                            label = "${p.toInt()}%",
                             selected = pct.toDoubleOrNull() == p,
                             onClick = { pct = formatQty(p) },
-                            label = { Text("${p.toInt()}%") },
                         )
                     }
                 }
-                OutlinedTextField(value = pct, onValueChange = { pct = it }, label = { Text("Percentage (%)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = fix, onValueChange = { fix = it }, label = { Text("Fixed amount ($currencySymbol)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                DesktopFormInput("Percentage (%)", pct, { pct = it })
+                DesktopFormInput("Fixed Amount ($currencySymbol)", fix, { fix = it })
             }
         },
         confirmButton = {
@@ -1080,64 +1118,46 @@ private fun DesktopCheckoutDialog(
         title = { Text("Order Checkout & Confirmation", fontWeight = FontWeight.Bold) },
         text = {
             Column(
-                modifier = Modifier.width(620.dp).verticalScroll(rememberScrollState()),
+                modifier = Modifier.width(620.dp).heightIn(max = 560.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                // 1. Rental Duration & Pickup Date
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = LoyBackground,
-                    border = BorderStroke(1.dp, LoyBorder),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("1. Rental Duration & Schedule", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                        Row(
+                DesktopSectionCard(title = "1. Rental Duration & Schedule") {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column {
+                            Text("Pickup: ${formatFullLocalDate(pickupDate)}", fontWeight = FontWeight.SemiBold)
+                            Text("Return Due: ${formatFullLocalDate(pickupDate.plusDays(days.toLong()))} ($days ${if (days == 1) "day" else "days"})", style = MaterialTheme.typography.bodySmall, color = LoyGreenDark)
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            DesktopSecondaryButton("-1d", onClick = { pickupDate = pickupDate.minusDays(1) })
+                            DesktopSecondaryButton("Today", onClick = { pickupDate = today })
+                            DesktopSecondaryButton("+1d", onClick = { pickupDate = pickupDate.plusDays(1) })
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Duration:", style = MaterialTheme.typography.bodySmall, color = LoyTextSecondary)
+                        listOf(1, 2, 3, 5, 7, 14).forEach { preset ->
+                            DesktopFilterPill("${preset}d", days == preset, { days = preset })
+                        }
+                        DocketStepButton(Icons.Outlined.Remove) { if (days > 1) days-- }
+                        DocketStepButton(Icons.Outlined.Add) { days = (days + 1).coerceAtMost(365) }
+                    }
+                    if (conflicts.isNotEmpty()) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = LoyWarningLight,
+                            border = BorderStroke(1.dp, LoyWarning.copy(alpha = 0.45f)),
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Column {
-                                Text("Pickup: ${formatFullLocalDate(pickupDate)}", fontWeight = FontWeight.SemiBold)
-                                Text("Return Due: ${formatFullLocalDate(pickupDate.plusDays(days.toLong()))} ($days ${if (days == 1) "day" else "days"})", style = MaterialTheme.typography.bodySmall, color = LoyGreenDark)
-                            }
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                OutlinedButton(onClick = { pickupDate = pickupDate.minusDays(1) }, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("-1d") }
-                                OutlinedButton(onClick = { pickupDate = today }, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("Today") }
-                                OutlinedButton(onClick = { pickupDate = pickupDate.plusDays(1) }, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("+1d") }
-                            }
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text("Duration:", style = MaterialTheme.typography.bodySmall, color = LoyTextSecondary)
-                            listOf(1, 2, 3, 5, 7, 14).forEach { preset ->
-                                FilterChip(
-                                    selected = days == preset,
-                                    onClick = { days = preset },
-                                    label = { Text("${preset}d") },
-                                    modifier = Modifier.height(28.dp),
-                                )
-                            }
-                            IconButton(onClick = { if (days > 1) days-- }, modifier = Modifier.size(28.dp)) {
-                                Icon(Icons.Outlined.Remove, contentDescription = "Decrease rental days", modifier = Modifier.size(16.dp))
-                            }
-                            IconButton(onClick = { days = (days + 1).coerceAtMost(365) }, modifier = Modifier.size(28.dp)) {
-                                Icon(Icons.Outlined.Add, contentDescription = "Increase rental days", modifier = Modifier.size(16.dp))
-                            }
-                        }
-                        if (conflicts.isNotEmpty()) {
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = LoyWarningLight,
-                                border = BorderStroke(1.dp, LoyWarning.copy(alpha = 0.45f)),
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Row(modifier = Modifier.padding(8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Icon(Icons.Outlined.WarningAmber, contentDescription = null, tint = LoyWarning, modifier = Modifier.size(18.dp))
-                                    Column {
-                                        Text("Availability Conflict", fontWeight = FontWeight.Bold, color = LoyWarning, style = MaterialTheme.typography.labelMedium)
-                                        conflicts.forEach { c ->
-                                            Text("${c.itemName}: need ${formatQty(c.requestedQty)}, ${formatQty(c.availableQty)} free on these dates", style = MaterialTheme.typography.bodySmall)
-                                        }
+                            Row(modifier = Modifier.padding(8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Icon(Icons.Outlined.WarningAmber, contentDescription = null, tint = LoyWarning, modifier = Modifier.size(16.dp))
+                                Column {
+                                    Text("Availability Conflict", fontWeight = FontWeight.Bold, color = LoyWarning, style = MaterialTheme.typography.labelMedium)
+                                    conflicts.forEach { c ->
+                                        Text("${c.itemName}: need ${formatQty(c.requestedQty)}, ${formatQty(c.availableQty)} free on these dates", style = MaterialTheme.typography.bodySmall)
                                     }
                                 }
                             }
@@ -1145,139 +1165,75 @@ private fun DesktopCheckoutDialog(
                     }
                 }
 
-                // 2. Customer & Event Details
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = LoyBackground,
-                    border = BorderStroke(1.dp, LoyBorder),
-                    modifier = Modifier.fillMaxWidth(),
+                DesktopSectionCard(
+                    title = "2. Customer & Event Details",
+                    headerAction = {
+                        DesktopSecondaryButton(
+                            text = if (showNewClientForm) "Pick Existing" else "+ New Client",
+                            onClick = { showNewClientForm = !showNewClientForm },
+                        )
+                    },
                 ) {
-                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text("2. Customer & Event Details", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                            TextButton(onClick = { showNewClientForm = !showNewClientForm }) {
-                                Text(if (showNewClientForm) "Pick Existing Client" else "+ New Client")
+                    if (showNewClientForm) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
+                            DesktopFormInput("Client / Company *", newClientName, { newClientName = it }, modifier = Modifier.weight(1.2f))
+                            DesktopFormInput("Phone", newClientPhone, { newClientPhone = it }, modifier = Modifier.weight(1f))
+                            DesktopPrimaryButton(
+                                text = "Add",
+                                enabled = newClientName.trim().isNotEmpty(),
+                                onClick = {
+                                    val created = DesktopClient(id = newId(), name = newClientName.trim(), phone = newClientPhone.trim(), createdAt = nowMs())
+                                    repository.saveClient(created)
+                                    clientId = created.id
+                                    newClientName = ""
+                                    newClientPhone = ""
+                                    showNewClientForm = false
+                                },
+                            )
+                        }
+                    } else {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            item {
+                                DesktopFilterPill("Walk-in", clientId == null, { clientId = null })
+                            }
+                            items(snapshot.clients, key = { it.id }) { client ->
+                                DesktopFilterPill(client.name, clientId == client.id, { clientId = client.id })
                             }
                         }
-                        if (showNewClientForm) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                OutlinedTextField(value = newClientName, onValueChange = { newClientName = it }, label = { Text("Client / Company Name") }, singleLine = true, modifier = Modifier.weight(1.2f))
-                                OutlinedTextField(value = newClientPhone, onValueChange = { newClientPhone = it }, label = { Text("Phone") }, singleLine = true, modifier = Modifier.weight(1f))
-                                Button(
-                                    onClick = {
-                                        val created = DesktopClient(id = newId(), name = newClientName.trim(), phone = newClientPhone.trim(), createdAt = nowMs())
-                                        repository.saveClient(created)
-                                        clientId = created.id
-                                        newClientName = ""
-                                        newClientPhone = ""
-                                        showNewClientForm = false
-                                    },
-                                    enabled = newClientName.trim().isNotEmpty(),
-                                ) {
-                                    Text("Add")
-                                }
-                            }
-                        } else {
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                item {
-                                    FilterChip(
-                                        selected = clientId == null,
-                                        onClick = { clientId = null },
-                                        label = { Text("Walk-in") },
-                                    )
-                                }
-                                items(snapshot.clients, key = { it.id }) { client ->
-                                    FilterChip(
-                                        selected = clientId == client.id,
-                                        onClick = { clientId = client.id },
-                                        label = { Text(client.name) },
-                                    )
-                                }
-                            }
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedTextField(value = evName, onValueChange = { evName = it }, label = { Text("Event Name") }, singleLine = true, modifier = Modifier.weight(1f))
-                            OutlinedTextField(value = evVenue, onValueChange = { evVenue = it }, label = { Text("Venue / Delivery Address") }, singleLine = true, modifier = Modifier.weight(1f))
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedTextField(value = depText, onValueChange = { depText = it }, label = { Text("Refundable Deposit ($sym)") }, singleLine = true, modifier = Modifier.weight(0.7f))
-                            OutlinedTextField(value = orderNote, onValueChange = { orderNote = it }, label = { Text("Delivery / Setup Note") }, singleLine = true, modifier = Modifier.weight(1.3f))
-                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        DesktopFormInput("Event Name", evName, { evName = it }, modifier = Modifier.weight(1f))
+                        DesktopFormInput("Venue / Delivery Address", evVenue, { evVenue = it }, modifier = Modifier.weight(1f))
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        DesktopFormInput("Refundable Deposit ($sym)", depText, { depText = it }, modifier = Modifier.weight(0.7f))
+                        DesktopFormInput("Delivery / Setup Note", orderNote, { orderNote = it }, modifier = Modifier.weight(1.3f))
                     }
                 }
 
-                // 3. Equipment Costs & Payment
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = LoyBackground,
-                    border = BorderStroke(1.dp, LoyBorder),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("3. Equipment Costs (${activeLines.size} items)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                        activeLines.forEach { l ->
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("${l.name} (${formatQty(l.qty)} × ${formatCents(l.dailyRateCents, sym)}/d × ${l.rentalDays}d)", style = MaterialTheme.typography.bodySmall, color = LoyTextSecondary)
-                                Text(formatCents(l.lineTotalCents, sym), style = TabularMoneyStyle.merge(MaterialTheme.typography.bodySmall), fontWeight = FontWeight.SemiBold)
-                            }
+                DesktopSectionCard(title = "3. Equipment Costs (${activeLines.size} items)") {
+                    activeLines.forEach { l ->
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("${l.name} (${formatQty(l.qty)} × ${formatCents(l.dailyRateCents, sym)}/d × ${l.rentalDays}d)", style = MaterialTheme.typography.bodySmall, color = LoyTextSecondary)
+                            Text(formatCents(l.lineTotalCents, sym), style = TabularMoneyStyle.merge(MaterialTheme.typography.bodySmall), fontWeight = FontWeight.SemiBold)
                         }
-                        HorizontalDivider(color = LoyBorder)
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Subtotal ($days days)", style = MaterialTheme.typography.bodySmall, color = LoyTextSecondary)
-                            Text(formatCents(calc.subtotalCents, sym), style = TabularMoneyStyle.merge(MaterialTheme.typography.bodySmall))
-                        }
-                        if (calc.discountCents > 0L) {
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Discount", style = MaterialTheme.typography.bodySmall, color = LoyGreenDark)
-                                Text("-${formatCents(calc.discountCents, sym)}", style = TabularMoneyStyle.merge(MaterialTheme.typography.bodySmall), color = LoyGreenDark)
-                            }
-                        }
-                        if (calc.taxCents > 0L) {
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Tax", style = MaterialTheme.typography.bodySmall, color = LoyTextSecondary)
-                                Text(formatCents(calc.taxCents, sym), style = TabularMoneyStyle.merge(MaterialTheme.typography.bodySmall))
-                            }
-                        }
-                        if (depCents > 0L) {
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Refundable Security Deposit", style = MaterialTheme.typography.bodySmall, color = LoyInfo)
-                                Text(formatCents(depCents, sym), style = TabularMoneyStyle.merge(MaterialTheme.typography.bodySmall), color = LoyInfo)
-                            }
-                        }
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Text("Total Rental Cost", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            Text(formatCents(calc.totalCents, sym), style = TabularMoneyStyle.merge(MaterialTheme.typography.titleLarge), fontWeight = FontWeight.Bold, color = LoyGreenDark)
-                        }
-
-                        HorizontalDivider(color = LoyBorder)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            FilterChip(
-                                selected = method == "cash",
-                                onClick = { method = "cash" },
-                                leadingIcon = { Icon(Icons.Outlined.Payments, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                                label = { Text("Cash") },
-                            )
-                            FilterChip(
-                                selected = method == "card",
-                                onClick = { method = "card" },
-                                leadingIcon = { Icon(Icons.Outlined.CreditCard, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                                label = { Text("Card / Transfer") },
-                            )
-                            if (method == "cash") {
-                                Spacer(Modifier.width(8.dp))
-                                OutlinedTextField(
-                                    value = tenderedText,
-                                    onValueChange = { tenderedText = it },
-                                    label = { Text("Received ($sym)") },
-                                    singleLine = true,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                Text("Change ${formatCents(changeCents, sym)}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
-                            }
+                    }
+                    HorizontalDivider(color = LoyBorder)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Text("Total Rental Cost", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        Text(formatCents(calc.totalCents, sym), style = TabularMoneyStyle.merge(MaterialTheme.typography.titleLarge), fontWeight = FontWeight.Bold, color = LoyGreenDark)
+                    }
+                    HorizontalDivider(color = LoyBorder)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        DesktopSegmentedControl(
+                            options = listOf("cash" to "Cash", "card" to "Card / Transfer"),
+                            selected = method,
+                            onSelect = { method = it },
+                        )
+                        if (method == "cash") {
+                            Spacer(Modifier.width(8.dp))
+                            DesktopFormInput("Received ($sym)", tenderedText, { tenderedText = it }, modifier = Modifier.weight(1f))
+                            Text("Change ${formatCents(changeCents, sym)}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
@@ -1305,8 +1261,6 @@ private fun DesktopCheckoutDialog(
                 Text("Confirm & Charge ${formatCents(calc.totalCents, sym)}", fontWeight = FontWeight.Bold)
             }
         },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }

@@ -2,11 +2,9 @@ package com.loypos.desktop.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -26,23 +24,21 @@ import androidx.compose.material.icons.automirrored.outlined.AssignmentReturn
 import androidx.compose.material.icons.automirrored.outlined.ReceiptLong
 import androidx.compose.material.icons.automirrored.outlined.Undo
 import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.Print
 import androidx.compose.material.icons.outlined.ReportProblem
-import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -50,11 +46,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.loypos.desktop.core.DesktopRentalReturnReminderCalculator
 import com.loypos.desktop.core.formatCents
 import com.loypos.desktop.core.formatDateTime
 import com.loypos.desktop.core.formatQty
@@ -68,20 +65,36 @@ import com.loypos.desktop.model.DesktopStoreSnapshot
 fun RentalOrdersView(
     repository: DesktopRepository,
     snapshot: DesktopStoreSnapshot,
+    initialFilterIdx: Int? = null,
+    onConsumeInitialFilter: () -> Unit = {},
     onReportDamage: (DesktopRentalOrder) -> Unit = {},
     onToast: (String) -> Unit,
 ) {
     val sym = snapshot.settings.currencySymbol
     var search by remember { mutableStateOf("") }
-    var filterIdx by remember { mutableIntStateOf(0) } // 0=All, 1=Out, 2=Overdue, 3=Returned, 4=Refunded
+    // 0=All, 1=Out, 2=Due <24h, 3=Overdue, 4=Returned, 5=Refunded
+    var filterIdx by remember { mutableIntStateOf(0) }
     var selectedOrderId by remember { mutableStateOf<String?>(null) }
     var confirmReturnId by remember { mutableStateOf<String?>(null) }
     var confirmRefundId by remember { mutableStateOf<String?>(null) }
     var previewReceiptOrder by remember { mutableStateOf<DesktopRentalOrder?>(null) }
     var agreementOrder by remember { mutableStateOf<DesktopRentalOrder?>(null) }
 
+    LaunchedEffect(initialFilterIdx) {
+        if (initialFilterIdx != null) {
+            filterIdx = initialFilterIdx
+            onConsumeInitialFilter()
+        }
+    }
+
     val now = remember(snapshot.orders) { nowMs() }
-    val filtered = remember(snapshot.orders, search, filterIdx, now) {
+    val due24hIds = remember(snapshot.orders, now) {
+        DesktopRentalReturnReminderCalculator.findRentalsDueWithin24Hours(snapshot.orders, now)
+            .map { it.order.id }
+            .toSet()
+    }
+
+    val filtered = remember(snapshot.orders, search, filterIdx, now, due24hIds) {
         val q = search.trim().lowercase()
         snapshot.orders.filter { o ->
             val matchesSearch = q.isEmpty() ||
@@ -89,12 +102,14 @@ fun RentalOrdersView(
                 o.number.toString().padStart(4, '0').contains(q) ||
                 (o.customerName?.lowercase()?.contains(q) == true) ||
                 o.eventName.lowercase().contains(q) ||
-                o.eventVenue.lowercase().contains(q)
+                o.eventVenue.lowercase().contains(q) ||
+                o.lines.any { it.name.lowercase().contains(q) }
             val matchesStatus = when (filterIdx) {
                 1 -> o.isRentalOut
-                2 -> o.isOverdue(now)
-                3 -> o.isReturned
-                4 -> !o.isCompleted
+                2 -> o.id in due24hIds
+                3 -> o.isOverdue(now)
+                4 -> o.isReturned
+                5 -> !o.isCompleted
                 else -> true
             }
             matchesSearch && matchesStatus
@@ -106,223 +121,342 @@ fun RentalOrdersView(
     }
 
     Row(modifier = Modifier.fillMaxSize().background(LoyBackground)) {
-        Column(modifier = Modifier.weight(0.48f).fillMaxHeight()) {
+        // Left Master Table (56%)
+        Column(modifier = Modifier.weight(0.56f).fillMaxHeight()) {
             Surface(color = LoySurface) {
-                Column(modifier = Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = search,
-                        onValueChange = { search = it },
-                        placeholder = { Text("Search #order, client, event, or venue") },
-                        leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-                        singleLine = true,
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        val tabs = listOf(
-                            "All (${snapshot.orders.size})",
-                            "Out (${snapshot.orders.count { it.isRentalOut }})",
-                            "Overdue (${snapshot.orders.count { it.isOverdue(now) }})",
-                            "Returned (${snapshot.orders.count { it.isReturned }})",
-                            "Refunded (${snapshot.orders.count { !it.isCompleted }})",
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        DesktopSearchInput(
+                            value = search,
+                            onValueChange = { search = it },
+                            placeholder = "Search #order, customer, event, venue, or gear...",
+                            modifier = Modifier.weight(1f),
                         )
-                        tabs.forEachIndexed { idx, label ->
-                            FilterChip(
-                                selected = filterIdx == idx,
-                                onClick = { filterIdx = idx },
-                                label = { Text(label, style = MaterialTheme.typography.labelSmall) },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = if (idx == 2) LoyWarningLight else LoyGreenLight,
-                                    selectedLabelColor = if (idx == 2) LoyWarning else LoyGreenDark,
-                                ),
-                                modifier = Modifier.height(28.dp),
-                            )
-                        }
                     }
+                    DesktopSegmentedControl(
+                        options = listOf(
+                            0 to "All (${snapshot.orders.size})",
+                            1 to "Out (${snapshot.orders.count { it.isRentalOut }})",
+                            2 to "Due <24h (${due24hIds.size})",
+                            3 to "Overdue (${snapshot.orders.count { it.isOverdue(now) }})",
+                            4 to "Returned (${snapshot.orders.count { it.isReturned }})",
+                            5 to "Refunded (${snapshot.orders.count { !it.isCompleted }})",
+                        ),
+                        selected = filterIdx,
+                        onSelect = { filterIdx = it },
+                    )
                 }
             }
             HorizontalDivider(color = LoyBorder)
 
             if (filtered.isEmpty()) {
-                Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Icon(Icons.AutoMirrored.Outlined.ReceiptLong, contentDescription = null, tint = LoyTextSecondary, modifier = Modifier.size(34.dp))
-                        Text("No rental orders found", style = MaterialTheme.typography.titleSmall, color = LoyTextSecondary)
-                    }
-                }
+                DesktopEmptyState(
+                    icon = Icons.AutoMirrored.Outlined.ReceiptLong,
+                    title = "No matching rental orders",
+                    subtitle = if (filterIdx == 2) "No active rentals are due within the next 24 hours." else "Adjust your search or status filter.",
+                    modifier = Modifier.weight(1f),
+                )
             } else {
-                LazyColumn(
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
-                    contentPadding = PaddingValues(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
+                DesktopTableHeaderRow {
+                    DesktopTableHeaderText("Order", Modifier.width(74.dp))
+                    DesktopTableHeaderText("Client & Event", Modifier.weight(1.4f))
+                    DesktopTableHeaderText("Return Due", Modifier.weight(1.0f))
+                    DesktopTableHeaderText("Status", Modifier.width(88.dp))
+                    DesktopTableHeaderText("Total", Modifier.width(92.dp))
+                }
+                LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth().background(LoySurface)) {
                     items(filtered, key = { it.id }) { o ->
                         val selected = activeOrder?.id == o.id
                         val overdue = o.isOverdue(now)
+                        val isDue24h = o.id in due24hIds && !overdue
                         val statusLabel = when {
                             !o.isCompleted -> "Refunded"
                             o.isReturned -> "Returned"
                             overdue -> "Overdue"
+                            isDue24h -> "Due <24h"
                             else -> "Out"
                         }
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = if (selected) LoyGreenLight.copy(alpha = 0.5f) else LoySurface,
-                            border = BorderStroke(1.dp, if (selected) LoyGreen else LoyBorder),
-                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable {
-                                selectedOrderId = o.id
-                            },
+
+                        DesktopTableRow(
+                            selected = selected,
+                            onClick = { selectedOrderId = o.id },
                         ) {
-                            Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        Text("#${o.number.toString().padStart(4, '0')} · ${o.rentalDays}d", fontWeight = FontWeight.Bold)
-                                        StatusBadge(statusLabel, o.isCompleted, o.isReturned, overdue)
-                                    }
-                                    val sub = listOfNotNull(
-                                        o.customerName?.takeIf { it.isNotEmpty() },
-                                        o.eventName.takeIf { it.isNotEmpty() },
-                                    ).joinToString(" · ")
-                                    Text(
-                                        if (sub.isNotEmpty()) "$sub · Due ${formatShortDate(o.rentalEndMs)}" else "Due ${formatShortDate(o.rentalEndMs)}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = if (overdue) LoyWarning else LoyTextSecondary,
-                                    )
-                                }
+                            Column(modifier = Modifier.width(74.dp)) {
                                 Text(
-                                    formatCents(o.totalCents, sym),
-                                    style = TabularMoneyStyle.merge(MaterialTheme.typography.titleSmall),
-                                    fontWeight = FontWeight.Bold,
+                                    text = "#${o.number.toString().padStart(4, '0')}",
+                                    style = MaterialTheme.typography.labelLarge.copy(fontFamily = FontFamily.Monospace),
+                                    color = LoyGreenDark,
+                                )
+                                Text(
+                                    text = "${o.rentalDays}d · ${o.lines.size} ln",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = LoyTextMuted,
                                 )
                             }
+                            Column(modifier = Modifier.weight(1.4f)) {
+                                Text(
+                                    text = o.customerName?.takeIf { it.isNotBlank() } ?: "Walk-in Client",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    text = listOfNotNull(
+                                        o.eventName.takeIf { it.isNotBlank() },
+                                        o.eventVenue.takeIf { it.isNotBlank() },
+                                    ).joinToString(" @ ").ifBlank { "Booked ${formatShortDate(o.createdAt)}" },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = LoyTextSecondary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            Column(modifier = Modifier.weight(1.0f)) {
+                                Text(
+                                    text = formatShortDate(o.rentalEndMs),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Medium,
+                                    color = if (overdue) LoyError else if (isDue24h) LoyWarning else LoyTextPrimary,
+                                )
+                                if (o.isRentalOut) {
+                                    Text(
+                                        text = DesktopRentalReturnReminderCalculator.formatRemainingLabel(o.rentalEndMs - now),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (overdue) LoyError else if (isDue24h) LoyWarning else LoyTextMuted,
+                                    )
+                                }
+                            }
+                            Box(modifier = Modifier.width(88.dp)) {
+                                OrderStatusBadge(statusLabel, o.isCompleted, o.isReturned, overdue, isDue24h)
+                            }
+                            Text(
+                                text = formatCents(o.totalCents, sym),
+                                style = TabularMoneyStyle.merge(MaterialTheme.typography.bodyMedium),
+                                fontWeight = FontWeight.Bold,
+                                color = if (!o.isCompleted) LoyError else LoyTextPrimary,
+                                textAlign = TextAlign.End,
+                                modifier = Modifier.width(92.dp),
+                            )
                         }
                     }
                 }
             }
         }
 
-        // Right Detail Inspector
-        Surface(
-            color = LoySurface,
-            border = BorderStroke(1.dp, LoyBorder),
-            modifier = Modifier.weight(0.52f).fillMaxHeight(),
+        VerticalDivider(color = LoyBorder)
+
+        // Right Order Inspector Dock (44%)
+        Column(
+            modifier = Modifier
+                .weight(0.44f)
+                .fillMaxHeight()
+                .background(LoySurface),
         ) {
             val order = activeOrder
             if (order == null) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Select a rental order to inspect dispatch, equipment, and returns.", color = LoyTextSecondary)
-                }
+                DesktopEmptyState(
+                    icon = Icons.AutoMirrored.Outlined.ReceiptLong,
+                    title = "No Order Selected",
+                    subtitle = "Select any rental order row to inspect line items, returns, and agreements.",
+                    modifier = Modifier.fillMaxSize(),
+                )
             } else {
                 val overdue = order.isOverdue(now)
+                val isDue24h = order.id in due24hIds && !overdue
                 Column(
-                    modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
+                    // Header
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
+                        verticalAlignment = Alignment.Top,
                     ) {
-                        Column {
-                            Text("Rental #${order.number.toString().padStart(4, '0')}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                            Text("Booked ${formatDateTime(order.createdAt)}", style = MaterialTheme.typography.bodySmall, color = LoyTextSecondary)
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Text(
+                                    text = "Order #${order.number.toString().padStart(4, '0')}",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                                val badgeLabel = when {
+                                    !order.isCompleted -> "Refunded"
+                                    order.isReturned -> "Returned"
+                                    overdue -> "Overdue"
+                                    isDue24h -> "Due <24h"
+                                    else -> "Active Out"
+                                }
+                                OrderStatusBadge(badgeLabel, order.isCompleted, order.isReturned, overdue, isDue24h)
+                            }
+                            Text(
+                                text = "Created ${formatDateTime(order.createdAt)} · ${order.paymentType.uppercase()}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = LoyTextSecondary,
+                            )
                         }
                         Text(
-                            formatCents(order.totalCents, sym),
+                            text = formatCents(order.totalCents, sym),
                             style = TabularMoneyStyle.merge(MaterialTheme.typography.headlineSmall),
                             color = LoyGreenDark,
                             fontWeight = FontWeight.Bold,
                         )
                     }
 
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = LoyBackground,
-                        border = BorderStroke(1.dp, LoyBorder),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("Duration: ${order.rentalDays} ${if (order.rentalDays == 1) "day" else "days"} · Return Due ${formatShortDate(order.rentalEndMs)}", fontWeight = FontWeight.SemiBold, color = if (overdue) LoyWarning else LoyTextPrimary)
-                            order.returnedAtMs?.let { ret ->
-                                Text("Returned: ${formatDateTime(ret)}", color = LoyGreenDark, style = MaterialTheme.typography.bodySmall)
-                            }
-                            if (!order.customerName.isNullOrEmpty()) Text("Client: ${order.customerName}", style = MaterialTheme.typography.bodySmall)
-                            if (order.eventName.isNotEmpty()) Text("Event: ${order.eventName}", style = MaterialTheme.typography.bodySmall)
-                            if (order.eventVenue.isNotEmpty()) Text("Venue: ${order.eventVenue}", style = MaterialTheme.typography.bodySmall)
-                            if (order.depositCents > 0L) Text("Refundable Security Deposit: ${formatCents(order.depositCents, sym)}", style = MaterialTheme.typography.bodySmall, color = LoyInfo)
-                            if (order.note.isNotEmpty()) Text("Note: ${order.note}", style = MaterialTheme.typography.bodySmall, color = LoyTextSecondary)
-                        }
-                    }
-
-                    Text("Rented Equipment", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = LoyBackground,
-                        border = BorderStroke(1.dp, LoyBorder),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Column {
-                            order.lines.forEachIndexed { idx, line ->
-                                if (idx > 0) HorizontalDivider(color = LoyBorder)
-                                Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(line.name, fontWeight = FontWeight.Medium)
-                                        Text("${formatQty(line.qty)} × ${formatCents(line.priceCents, sym)}/d × ${order.rentalDays}d", style = MaterialTheme.typography.bodySmall, color = LoyTextSecondary)
-                                    }
-                                    Text(formatCents(line.lineTotalCents, sym), style = TabularMoneyStyle, fontWeight = FontWeight.Bold)
+                    // 24h Return Alert Banner inside Inspector when applicable
+                    if (order.id in due24hIds) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = if (overdue) LoyErrorLight else LoyWarningLight,
+                            border = BorderStroke(1.dp, (if (overdue) LoyError else LoyWarning).copy(alpha = 0.35f)),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.NotificationsActive,
+                                    contentDescription = null,
+                                    tint = if (overdue) LoyError else LoyWarning,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                                Column {
+                                    Text(
+                                        text = if (overdue) "Return Overdue" else "24-Hour Return Reminder Window",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = if (overdue) LoyError else LoyWarning,
+                                    )
+                                    Text(
+                                        text = "${DesktopRentalReturnReminderCalculator.formatRemainingLabel(order.rentalEndMs - now)} · Scheduled return ${formatShortDate(order.rentalEndMs)}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = LoyTextSecondary,
+                                    )
                                 }
                             }
                         }
                     }
 
-                    if (order.isCompleted && !order.isReturned) {
-                        Button(
-                            onClick = { confirmReturnId = order.id },
-                            colors = ButtonDefaults.buttonColors(containerColor = LoyGreen),
-                            modifier = Modifier.fillMaxWidth().height(44.dp),
-                        ) {
-                            Icon(Icons.AutoMirrored.Outlined.AssignmentReturn, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Mark Equipment Returned (Restore Fleet)", fontWeight = FontWeight.Bold)
+                    // Structured Metadata Card
+                    DesktopSectionCard(title = "Dispatch & Return Details") {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            InspectorField("Pickup Date", formatShortDate(order.rentalStartMs), Modifier.weight(1f))
+                            InspectorField("Return Due", "${formatShortDate(order.rentalEndMs)} (${order.rentalDays}d)", Modifier.weight(1f))
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            InspectorField("Client", order.customerName?.ifBlank { "Walk-in" } ?: "Walk-in", Modifier.weight(1f))
+                            InspectorField("Event", order.eventName.ifBlank { "—" }, Modifier.weight(1f))
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            InspectorField("Venue", order.eventVenue.ifBlank { "—" }, Modifier.weight(1f))
+                            InspectorField(
+                                "Security Deposit",
+                                if (order.depositCents > 0L) formatCents(order.depositCents, sym) else "None",
+                                Modifier.weight(1f),
+                            )
+                        }
+                        order.returnedAtMs?.let { ret ->
+                            InspectorField("Returned At", formatDateTime(ret), Modifier.fillMaxWidth())
+                        }
+                        if (order.note.isNotBlank()) {
+                            InspectorField("Dispatch Note", order.note, Modifier.fillMaxWidth())
                         }
                     }
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        OutlinedButton(
-                            onClick = { previewReceiptOrder = order },
-                            modifier = Modifier.weight(1f).height(42.dp),
-                        ) {
-                            Icon(Icons.Outlined.Print, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Receipt Copy")
+                    // Line items table
+                    DesktopSectionCard(
+                        title = "Rented Equipment (${order.lines.size})",
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                    ) {
+                        DesktopTableHeaderRow {
+                            DesktopTableHeaderText("Equipment", Modifier.weight(1.4f))
+                            DesktopTableHeaderText("Rate × Qty", Modifier.weight(1f))
+                            DesktopTableHeaderText("Total", Modifier.width(84.dp))
                         }
-                        OutlinedButton(
-                            onClick = { agreementOrder = order },
-                            modifier = Modifier.weight(1f).height(42.dp),
-                        ) {
-                            Icon(Icons.Outlined.Description, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Agreement")
-                        }
-                        if (order.isCompleted) {
-                            OutlinedButton(
-                                onClick = { confirmRefundId = order.id },
-                                modifier = Modifier.weight(1f).height(42.dp),
-                            ) {
-                                Icon(Icons.AutoMirrored.Outlined.Undo, contentDescription = null, modifier = Modifier.size(16.dp), tint = LoyError)
-                                Spacer(Modifier.width(6.dp))
-                                Text("Refund", color = LoyError)
+                        order.lines.forEach { line ->
+                            DesktopTableRow {
+                                Text(
+                                    text = line.name,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.weight(1.4f),
+                                )
+                                Text(
+                                    text = "${formatQty(line.qty)} × ${formatCents(line.priceCents, sym)} × ${order.rentalDays}d",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = LoyTextSecondary,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Text(
+                                    text = formatCents(line.lineTotalCents, sym),
+                                    style = TabularMoneyStyle.merge(MaterialTheme.typography.bodySmall),
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.End,
+                                    modifier = Modifier.width(84.dp),
+                                )
                             }
                         }
                     }
 
-                    OutlinedButton(
-                        onClick = { onReportDamage(order) },
-                        modifier = Modifier.fillMaxWidth().height(42.dp),
-                    ) {
-                        Icon(Icons.Outlined.ReportProblem, contentDescription = null, modifier = Modifier.size(16.dp), tint = LoyWarning)
-                        Spacer(Modifier.width(6.dp))
-                        Text("Document Equipment Damage", color = LoyWarning, fontWeight = FontWeight.SemiBold)
+                    // Primary Actions
+                    if (order.isCompleted && !order.isReturned) {
+                        DesktopPrimaryButton(
+                            text = "Mark Equipment Returned (Restore Fleet)",
+                            icon = Icons.AutoMirrored.Outlined.AssignmentReturn,
+                            onClick = { confirmReturnId = order.id },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        DesktopSecondaryButton(
+                            text = "Receipt",
+                            icon = Icons.Outlined.Print,
+                            onClick = { previewReceiptOrder = order },
+                            modifier = Modifier.weight(1f),
+                        )
+                        DesktopSecondaryButton(
+                            text = "Agreement",
+                            icon = Icons.Outlined.Description,
+                            onClick = { agreementOrder = order },
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (order.isCompleted) {
+                            DesktopSecondaryButton(
+                                text = "Refund",
+                                icon = Icons.AutoMirrored.Outlined.Undo,
+                                contentColor = LoyError,
+                                onClick = { confirmRefundId = order.id },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+
+                    DesktopSecondaryButton(
+                        text = "Document Equipment Damage",
+                        icon = Icons.Outlined.ReportProblem,
+                        contentColor = LoyWarning,
+                        onClick = { onReportDamage(order) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
             }
         }
@@ -367,13 +501,11 @@ fun RentalOrdersView(
             onDismissRequest = { previewReceiptOrder = null },
             title = { Text("Receipt Copy · #${order.number.toString().padStart(4, '0')}") },
             text = {
-                Surface(color = LoyBackground, shape = RoundedCornerShape(10.dp), border = BorderStroke(1.dp, LoyBorder)) {
+                Surface(color = LoyBackground, shape = RoundedCornerShape(8.dp), border = BorderStroke(1.dp, LoyBorder)) {
                     Text(txt, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(12.dp))
                 }
             },
-            confirmButton = {
-                Button(onClick = { previewReceiptOrder = null }) { Text("Close") }
-            },
+            confirmButton = { Button(onClick = { previewReceiptOrder = null }) { Text("Close") } },
         )
     }
 
@@ -388,16 +520,36 @@ fun RentalOrdersView(
 }
 
 @Composable
-private fun StatusBadge(label: String, isCompleted: Boolean, isReturned: Boolean, overdue: Boolean) {
+private fun InspectorField(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            text = label.uppercase(),
+            style = MaterialTheme.typography.labelSmall,
+            color = LoyTextMuted,
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.SemiBold,
+            color = LoyTextPrimary,
+        )
+    }
+}
+
+@Composable
+private fun OrderStatusBadge(
+    label: String,
+    isCompleted: Boolean,
+    isReturned: Boolean,
+    overdue: Boolean,
+    isDue24h: Boolean,
+) {
     val (bg, fg) = when {
         !isCompleted -> LoyErrorLight to LoyError
         isReturned -> LoyGreenLight to LoyGreenDark
-        overdue -> LoyWarningLight to LoyWarning
+        overdue -> LoyErrorLight to LoyError
+        isDue24h -> LoyWarningLight to LoyWarning
         else -> LoyInfoLight to LoyInfo
     }
-    Box(
-        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(bg).padding(horizontal = 8.dp, vertical = 2.dp),
-    ) {
-        Text(label, style = MaterialTheme.typography.labelSmall, color = fg, fontWeight = FontWeight.SemiBold)
-    }
+    DesktopBadge(text = label, bgColor = bg, fgColor = fg)
 }

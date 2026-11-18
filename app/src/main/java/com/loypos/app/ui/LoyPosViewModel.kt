@@ -22,6 +22,8 @@ import com.loypos.app.core.ReceiptPaperFormat
 import com.loypos.app.core.ReceiptPdfGenerator
 import com.loypos.app.core.ReceiptPdfPreviewResult
 import com.loypos.app.core.RentalAgreementEngine
+import com.loypos.app.core.RentalReturnReminderCalculator
+import com.loypos.app.core.RentalReturnWorkScheduler
 import com.loypos.app.core.SaleTotals
 import com.loypos.app.core.SalesCsvExporter
 import com.loypos.app.core.SalesCsvReportResult
@@ -121,8 +123,11 @@ data class UiSessionState(
     val localBackups: List<LocalBackup> = emptyList(),
     val integrityResult: String? = null,
     val lowStockWorkerStatus: String = "Off",
+    val returnReminderWorkerStatus: String = "Off",
     val navigateToLowStockTrigger: Int = 0,
     val initialFilterLowStock: Boolean = false,
+    val navigateToReturnsTrigger: Int = 0,
+    val navigateToReturnReceiptId: String? = null,
     val showWalkthrough: Boolean = false,
     val message: String? = null,
 )
@@ -336,6 +341,10 @@ class LoyPosViewModel(application: Application) : AndroidViewModel(application) 
                 val intervalMin = (raw["low_stock_interval_minutes"]?.toLongOrNull() ?: 15L).coerceAtLeast(15L)
                 LowStockWorkScheduler.schedulePeriodicCheck(appContext, intervalMin)
             }
+            if (raw["return_reminder_alerts_enabled"] != "false") {
+                RentalReturnWorkScheduler.schedulePeriodicSweep(appContext)
+                RentalReturnWorkScheduler.syncAllActiveRentals(appContext, repo.saleDao.getAllSales())
+            }
             com.loypos.app.core.GithubUpdateWorker.schedule(appContext)
         }
         viewModelScope.launch {
@@ -354,6 +363,22 @@ class LoyPosViewModel(application: Application) : AndroidViewModel(application) 
                     _session.update { it.copy(lowStockWorkerStatus = statusLabel) }
                 }
         }
+        viewModelScope.launch {
+            WorkManager.getInstance(appContext)
+                .getWorkInfosForUniqueWorkFlow(RentalReturnWorkScheduler.PERIODIC_WORK_NAME)
+                .collect { infos ->
+                    val active = infos.firstOrNull { !it.state.isFinished } ?: infos.firstOrNull()
+                    val statusLabel = when (active?.state) {
+                        WorkInfo.State.RUNNING -> "Checking now"
+                        WorkInfo.State.ENQUEUED -> "Scheduled"
+                        WorkInfo.State.BLOCKED -> "Waiting"
+                        WorkInfo.State.SUCCEEDED -> "Completed"
+                        WorkInfo.State.FAILED -> "Retry pending"
+                        WorkInfo.State.CANCELLED, null -> "Off"
+                    }
+                    _session.update { it.copy(returnReminderWorkerStatus = statusLabel) }
+                }
+        }
     }
 
     fun triggerLowStockNavigation(filterLowStockInInventory: Boolean = true) {
@@ -367,6 +392,24 @@ class LoyPosViewModel(application: Application) : AndroidViewModel(application) 
 
     fun consumeLowStockNavigation() {
         _session.update { it.copy(navigateToLowStockTrigger = 0, initialFilterLowStock = false) }
+    }
+
+    fun triggerReturnReminderNavigation(receiptId: String? = null) {
+        _session.update {
+            it.copy(
+                navigateToReturnsTrigger = it.navigateToReturnsTrigger + 1,
+                navigateToReturnReceiptId = receiptId,
+            )
+        }
+    }
+
+    fun consumeReturnReminderNavigation() {
+        _session.update {
+            it.copy(
+                navigateToReturnsTrigger = 0,
+                navigateToReturnReceiptId = null,
+            )
+        }
     }
 
     fun showWalkthrough() {
@@ -781,6 +824,9 @@ class LoyPosViewModel(application: Application) : AndroidViewModel(application) 
             if (data.settings.lowStockAlertsEnabled) {
                 LowStockWorkScheduler.runImmediateCheck(appContext)
             }
+            if (data.settings.returnReminderAlertsEnabled) {
+                RentalReturnWorkScheduler.scheduleForRental(appContext, receipt.receipt)
+            }
             refreshHealthAndBackups()
             onSuccess()
         }
@@ -789,6 +835,7 @@ class LoyPosViewModel(application: Application) : AndroidViewModel(application) 
     fun refundReceipt(receiptId: String) {
         viewModelScope.launch {
             repo.refundReceipt(receiptId)
+            RentalReturnWorkScheduler.cancelForRental(appContext, receiptId)
             showMessage("Rental refunded and equipment availability restored")
         }
     }
@@ -797,6 +844,7 @@ class LoyPosViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             val ok = repo.markRentalReturned(receiptId)
             if (ok) {
+                RentalReturnWorkScheduler.cancelForRental(appContext, receiptId)
                 refreshHealthAndBackups()
                 showMessage("Equipment marked returned and stock restored")
             } else {
@@ -1132,6 +1180,48 @@ class LoyPosViewModel(application: Application) : AndroidViewModel(application) 
                 val names = lowItems.take(2).joinToString(", ") { it.name }
                 val extra = if (lowItems.size > 2) " +${lowItems.size - 2} more" else ""
                 showMessage("${lowItems.size} ${if (lowItems.size == 1) "item" else "items"} below safety threshold: $names$extra")
+            }
+        }
+    }
+
+    fun updateReturnReminderSettings(enabled: Boolean) {
+        viewModelScope.launch {
+            repo.saveReturnReminderSettings(enabled)
+            val allSales = repo.saleDao.getAllSales()
+            if (enabled) {
+                RentalReturnWorkScheduler.schedulePeriodicSweep(appContext)
+                RentalReturnWorkScheduler.syncAllActiveRentals(appContext, allSales)
+                RentalReturnWorkScheduler.runImmediateCheck(appContext, forceNotify = true)
+                showMessage("24-hour rental return reminders enabled")
+            } else {
+                RentalReturnWorkScheduler.cancelAll(appContext, allSales)
+                showMessage("24-hour rental return reminders disabled")
+            }
+        }
+    }
+
+    fun runReturnReminderCheckNow() {
+        viewModelScope.launch {
+            val allSales = repo.saleDao.getAllSales()
+            val due = RentalReturnReminderCalculator.findDueRentals(
+                sales = allSales,
+                nowMs = nowMs(),
+                notifiedTokens = emptySet(),
+                forceIncludeNotified = true,
+            )
+            RentalReturnWorkScheduler.runImmediateCheck(appContext, forceNotify = true)
+            if (due.isEmpty()) {
+                val activeOut = allSales.count { it.isRentalOut }
+                showMessage(
+                    if (activeOut == 0) "No active rentals awaiting return"
+                    else "$activeOut active rental(s) checked — none due within 24h"
+                )
+            } else {
+                val first = due.first()
+                val orderLabel = "#${first.sale.number.toString().padStart(4, '0')}"
+                showMessage(
+                    "${due.size} rental ${if (due.size == 1) "return" else "returns"} due within 24h (earliest $orderLabel)"
+                )
             }
         }
     }

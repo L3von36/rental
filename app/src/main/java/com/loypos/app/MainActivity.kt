@@ -10,6 +10,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.loypos.app.core.LowStockNotifier
+import com.loypos.app.core.RentalReturnNotifier
 import com.loypos.app.ui.AppWorkspace
 import com.loypos.app.ui.AuthStage
 import com.loypos.app.ui.LoyPosViewModel
@@ -28,9 +29,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        if (intent?.getBooleanExtra(LowStockNotifier.EXTRA_OPEN_LOW_STOCK, false) == true) {
-            vm.triggerLowStockNavigation()
-        }
+        handleNotificationIntent(intent)
         setContent {
             LoyPosTheme {
                 val session by vm.session.collectAsStateWithLifecycle()
@@ -95,8 +94,19 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        handleNotificationIntent(intent)
+    }
+
+    private fun handleNotificationIntent(intent: Intent?) {
+        if (intent == null) return
         if (intent.getBooleanExtra(LowStockNotifier.EXTRA_OPEN_LOW_STOCK, false)) {
             vm.triggerLowStockNavigation()
+        }
+        val rentalId = intent.getStringExtra(RentalReturnNotifier.EXTRA_OPEN_RENTAL_ID)
+        if (!rentalId.isNullOrBlank()) {
+            vm.triggerReturnReminderNavigation(rentalId)
+        } else if (intent.getBooleanExtra(RentalReturnNotifier.EXTRA_OPEN_RETURNS, false)) {
+            vm.triggerReturnReminderNavigation(null)
         }
     }
 }
