@@ -1,0 +1,333 @@
+name: Build & Release LoyPOS (Android + Desktop)
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release tag (e.g. v1.0.0). Leave empty to auto-generate v1.0.<run_number>.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    name: Resolve Release Tag
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Resolve release tag
+        id: version
+        shell: bash
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            TAG="${{ github.ref_name }}"
+          elif [[ -n "${{ inputs.tag_name }}" ]]; then
+            TAG="${{ inputs.tag_name }}"
+          else
+            TAG="v1.0.${{ github.run_number }}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+  build-android:
+    name: Build Android APKs
+    needs: prepare
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Android SDK (API 36)
+        shell: bash
+        run: |
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          if [ ! -d "$SDK_ROOT" ]; then
+            echo "Android SDK directory not found at $SDK_ROOT"
+            exit 1
+          fi
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+
+          SDKMANAGER=""
+          if [ -d "$SDK_ROOT/cmdline-tools" ]; then
+            SDKMANAGER=$(find "$SDK_ROOT/cmdline-tools" -type f -name "sdkmanager" 2>/dev/null | sort -V | tail -n 1 || true)
+          fi
+          if [ -z "$SDKMANAGER" ]; then
+            SDKMANAGER=$(command -v sdkmanager || true)
+          fi
+
+          if [ -n "$SDKMANAGER" ]; then
+            set +o pipefail
+            { yes || true; } | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses >/dev/null 2>&1 || true
+            set -o pipefail
+          fi
+
+          if [ -d "$SDK_ROOT/platforms/android-36" ] && [ -d "$SDK_ROOT/build-tools/36.0.0" ]; then
+            echo "Preinstalled Android SDK API 36 and Build Tools 36.0.0 found at $SDK_ROOT"
+          else
+            if [ -z "$SDKMANAGER" ]; then
+              echo "sdkmanager not found and API 36 SDK packages are missing under $SDK_ROOT"
+              exit 1
+            fi
+            set +o pipefail
+            { yes || true; } | "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+            set -o pipefail
+          fi
+
+      - name: Cache Gradle 9.3.1 & dependencies
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.gradle-dist/gradle-9.3.1
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-9.3.1-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/libs.versions.toml', 'gradle.properties') }}
+          restore-keys: |
+            gradle-9.3.1-${{ runner.os }}-
+
+      - name: Install Gradle 9.3.1
+        shell: bash
+        run: |
+          GRADLE_DIR="$HOME/.gradle-dist/gradle-9.3.1"
+          if [ ! -x "$GRADLE_DIR/bin/gradle" ]; then
+            mkdir -p "$HOME/.gradle-dist"
+            curl -fsSL --retry 3 --retry-delay 2 \
+              "https://services.gradle.org/distributions/gradle-9.3.1-bin.zip" \
+              -o /tmp/gradle-9.3.1-bin.zip
+            unzip -q /tmp/gradle-9.3.1-bin.zip -d "$HOME/.gradle-dist"
+            rm -f /tmp/gradle-9.3.1-bin.zip
+          fi
+          echo "$GRADLE_DIR/bin" >> "$GITHUB_PATH"
+          "$GRADLE_DIR/bin/gradle" --version
+
+      - name: Prepare signing keystores
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          if [ ! -f debug.keystore ] && [ -f debug.keystore.base64 ]; then
+            tr -d '\r\n ' < debug.keystore.base64 | base64 -d > debug.keystore
+            echo "Decoded debug.keystore from debug.keystore.base64"
+          fi
+          if [ ! -f debug.keystore ]; then
+            keytool -genkeypair -v \
+              -keystore debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+            echo "Generated fallback debug.keystore"
+          fi
+
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            if [ -z "$ANDROID_KEYSTORE_PASSWORD" ] || [ -z "$ANDROID_KEY_ALIAS" ]; then
+              echo "::error::ANDROID_KEYSTORE_BASE64 is set, so ANDROID_KEYSTORE_PASSWORD and ANDROID_KEY_ALIAS secrets must also be configured."
+              exit 1
+            fi
+            rm -f release.keystore
+            echo "$ANDROID_KEYSTORE_BASE64" | tr -d '\r\n ' | base64 -d > release.keystore
+            echo "USING_CUSTOM_RELEASE_KEYSTORE=true" >> "$GITHUB_ENV"
+            echo "Decoded release.keystore from ANDROID_KEYSTORE_BASE64 secret"
+          elif [ -f release.keystore.base64 ]; then
+            rm -f release.keystore
+            tr -d '\r\n ' < release.keystore.base64 | base64 -d > release.keystore
+            echo "USING_CUSTOM_RELEASE_KEYSTORE=false" >> "$GITHUB_ENV"
+            echo "Decoded release.keystore from release.keystore.base64"
+          else
+            rm -f release.keystore
+            keytool -genkeypair -v \
+              -keystore release.keystore \
+              -storepass loypos-release \
+              -alias loypos-release \
+              -keypass loypos-release \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=LoyPOS Release,OU=POS,O=LoyPOS,C=US"
+            echo "USING_CUSTOM_RELEASE_KEYSTORE=false" >> "$GITHUB_ENV"
+            echo "::warning::ANDROID_KEYSTORE_BASE64 secret is not set; generated an ephemeral release.keystore for this release. Set ANDROID_KEYSTORE_BASE64/PASSWORD/ALIAS secrets to enable seamless updates across releases."
+          fi
+
+      - name: Build Debug & Release APKs
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          TAG="${{ needs.prepare.outputs.tag }}"
+          VER_NAME="${TAG#v}"
+          if [ "$USING_CUSTOM_RELEASE_KEYSTORE" = "true" ]; then
+            KEY_PASS="${ANDROID_KEY_PASSWORD:-$ANDROID_KEYSTORE_PASSWORD}"
+            gradle assembleDebug assembleRelease \
+              -PversionCode="${{ github.run_number }}" \
+              -PversionName="$VER_NAME" \
+              -PreleaseStoreFile="${PWD}/release.keystore" \
+              -PreleaseStorePassword="$ANDROID_KEYSTORE_PASSWORD" \
+              -PreleaseKeyAlias="$ANDROID_KEY_ALIAS" \
+              -PreleaseKeyPassword="$KEY_PASS" \
+              --no-daemon
+          else
+            gradle assembleDebug assembleRelease \
+              -PversionCode="${{ github.run_number }}" \
+              -PversionName="$VER_NAME" \
+              -PreleaseStoreFile="${PWD}/release.keystore" \
+              -PreleaseStorePassword="loypos-release" \
+              -PreleaseKeyAlias="loypos-release" \
+              -PreleaseKeyPassword="loypos-release" \
+              --no-daemon
+          fi
+          rm -f release.keystore
+
+      - name: Collect & verify APK artifacts
+        shell: bash
+        run: |
+          mkdir -p release-apks
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" \( -type f -o -type l \) -name "apksigner" | sort -V | tail -n 1)
+          ZIPALIGN=$(find "$ANDROID_HOME/build-tools" \( -type f -o -type l \) -name "zipalign" | sort -V | tail -n 1)
+
+          DEBUG_APK=$(find app/build/outputs/apk/debug -maxdepth 1 -name "*.apk" | sort | head -n 1)
+          RELEASE_APK=$(find app/build/outputs/apk/release -maxdepth 1 -name "*.apk" | sort | head -n 1)
+
+          if [ -z "$DEBUG_APK" ] || [ -z "$RELEASE_APK" ]; then
+            echo "APK build output missing (debug='$DEBUG_APK', release='$RELEASE_APK')"
+            exit 1
+          fi
+
+          cp "$DEBUG_APK" release-apks/loypos-debug.apk
+          cp "$RELEASE_APK" release-apks/loypos-release.apk
+
+          echo "Verifying alignment & signatures..."
+          "$ZIPALIGN" -c 4 release-apks/loypos-debug.apk
+          "$ZIPALIGN" -c 4 release-apks/loypos-release.apk
+          "$APKSIGNER" verify --verbose --print-certs release-apks/loypos-debug.apk
+          "$APKSIGNER" verify --verbose --print-certs release-apks/loypos-release.apk
+          ls -lh release-apks/
+
+      - name: Upload APK build artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: loypos-apks
+          path: release-apks/*.apk
+          retention-days: 30
+
+  build-desktop:
+    name: Build Desktop (${{ matrix.artifact-tag }})
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact-tag: linux
+          - os: windows-latest
+            artifact-tag: windows
+          - os: macos-latest
+            artifact-tag: macos
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle 9.3.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Run Desktop tests & package installers
+        shell: bash
+        run: |
+          TAG="${{ needs.prepare.outputs.tag }}"
+          VER_NAME="${TAG#v}"
+          gradle -p desktop test packageDistributionForCurrentOS packageUberJarForCurrentOS \
+            -PappVersion="$VER_NAME" \
+            --no-daemon
+
+      - name: Collect Desktop distribution artifacts
+        shell: bash
+        run: |
+          mkdir -p release-desktop
+          JAR_FILE=$(find desktop/build/compose/jars -maxdepth 2 -name "*.jar" 2>/dev/null | head -n 1 || true)
+          if [ -n "$JAR_FILE" ]; then
+            cp "$JAR_FILE" "release-desktop/loypos-rental-${{ matrix.artifact-tag }}.jar"
+          fi
+          DEB_FILE=$(find desktop/build/compose/binaries -type f -name "*.deb" 2>/dev/null | head -n 1 || true)
+          if [ -n "$DEB_FILE" ]; then
+            cp "$DEB_FILE" "release-desktop/loypos-rental-linux.deb"
+          fi
+          MSI_FILE=$(find desktop/build/compose/binaries -type f -name "*.msi" 2>/dev/null | head -n 1 || true)
+          if [ -n "$MSI_FILE" ]; then
+            cp "$MSI_FILE" "release-desktop/loypos-rental-windows.msi"
+          fi
+          DMG_FILE=$(find desktop/build/compose/binaries -type f -name "*.dmg" 2>/dev/null | head -n 1 || true)
+          if [ -n "$DMG_FILE" ]; then
+            cp "$DMG_FILE" "release-desktop/loypos-rental-macos.dmg"
+          fi
+          if [ -z "$(ls -A release-desktop)" ]; then
+            echo "No desktop artifacts were generated!"
+            exit 1
+          fi
+          ls -lh release-desktop/
+
+      - name: Upload Desktop build artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: loypos-desktop-${{ matrix.artifact-tag }}
+          path: release-desktop/*
+          retention-days: 30
+
+  publish-release:
+    name: Publish Multi-Platform Release
+    needs: [prepare, build-android, build-desktop]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download Android & Desktop artifacts
+        uses: actions/download-artifact@v5
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List release assets
+        shell: bash
+        run: ls -lh dist/
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: LoyPOS ${{ needs.prepare.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          overwrite_files: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/*

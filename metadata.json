@@ -1,0 +1,8 @@
+{
+  "name": "LoyPOS",
+  "description": "Offline-first Event Tool & Equipment Rental POS for tents, chairs, lighting, sound, staging, returns, and multi-device desktop + mobile management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
