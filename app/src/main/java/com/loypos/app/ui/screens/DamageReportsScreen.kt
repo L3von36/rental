@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -102,6 +103,7 @@ import com.loypos.app.ui.components.GroupCard
 import com.loypos.app.ui.components.PillBadge
 import com.loypos.app.ui.components.StatBlock
 import com.loypos.app.ui.theme.LocalLoyMetrics
+import com.loypos.app.ui.theme.LocalLoyWindowSize
 import com.loypos.app.ui.theme.LoyBackground
 import com.loypos.app.ui.theme.LoyBorder
 import com.loypos.app.ui.theme.LoyError
@@ -176,6 +178,11 @@ fun DamageReportsScreen(
                 (report.receiptNumber?.let { "#${it.toString().padStart(4, '0')}".contains(q) || it.toString().contains(q) } == true)
             matchesStatus && matchesQuery
         }
+    }
+    val windowSize = LocalLoyWindowSize.current
+    var selectedReportId by remember { mutableStateOf<String?>(null) }
+    val activeReport = remember(filteredReports, selectedReportId) {
+        filteredReports.firstOrNull { it.id == selectedReportId } ?: filteredReports.firstOrNull()
     }
 
     Scaffold(
@@ -301,6 +308,111 @@ fun DamageReportsScreen(
                             showFormDialog = true
                         },
                     )
+                }
+            } else if (windowSize.useSplitPane) {
+                Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    LazyColumn(
+                        modifier = Modifier.weight(0.44f).fillMaxHeight(),
+                        contentPadding = PaddingValues(metrics.screenPadding),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(filteredReports, key = { it.id }) { report ->
+                            val isSelected = activeReport?.id == report.id
+                            val (statusLabel, statusBg, statusFg) = when (report.status) {
+                                DamageReportEntity.STATUS_REPAIRING -> Triple("Under Repair", LoyWarningLight, LoyWarning)
+                                DamageReportEntity.STATUS_RESOLVED -> Triple("Resolved", LoyGreenLight, LoyGreenDarkText)
+                                else -> Triple("Open", LoyErrorLight, LoyError)
+                            }
+                            val (sevLabel, sevBg, sevFg) = when (report.severity) {
+                                DamageReportEntity.SEVERITY_SEVERE -> Triple("Severe", LoyErrorLight, LoyError)
+                                DamageReportEntity.SEVERITY_MODERATE -> Triple("Moderate", LoyWarningLight, LoyWarning)
+                                else -> Triple("Minor", LoyInfoLight, LoyInfo)
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (isSelected) LoyErrorLight.copy(alpha = 0.25f) else LoySurface,
+                                border = BorderStroke(if (isSelected) 1.5.dp else 1.dp, if (isSelected) LoyError else LoyBorder),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable { selectedReportId = report.id }
+                                    .testTag("damage_report_card_${report.id}"),
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(
+                                            text = report.itemName,
+                                            fontWeight = FontWeight.Bold,
+                                            color = LoyTextPrimary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        if (report.repairCostCents > 0L) {
+                                            Text(
+                                                text = formatCents(report.repairCostCents, sym),
+                                                style = TabularMoneyStyle,
+                                                fontWeight = FontWeight.Bold,
+                                                color = LoyError,
+                                            )
+                                        }
+                                    }
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        PillBadge(text = statusLabel, backgroundColor = statusBg, textColor = statusFg)
+                                        PillBadge(text = sevLabel, backgroundColor = sevBg, textColor = sevFg)
+                                        if (report.unitCode.isNotBlank()) {
+                                            PillBadge(text = report.unitCode, backgroundColor = LoyInfoLight, textColor = LoyInfo)
+                                        }
+                                    }
+                                    Text(
+                                        text = "${formatDateTime(report.createdAt)}${if (report.customerName.isNotBlank()) " · ${report.customerName}" else ""} · ${report.photoPathList().size} photos",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = LoyTextSecondary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(LoyBorder))
+                    Box(
+                        modifier = Modifier
+                            .weight(0.56f)
+                            .fillMaxHeight()
+                            .verticalScroll(rememberScrollState())
+                            .padding(metrics.screenPadding),
+                    ) {
+                        val targetReport = activeReport
+                        if (targetReport == null) {
+                            EmptyState(
+                                icon = Icons.Outlined.ReportProblem,
+                                title = "Select a damage report",
+                                subtitle = "Pick any damage entry on the left to review inspection notes, attached photos, and repair actions.",
+                            )
+                        } else {
+                            DamageReportCard(
+                                report = targetReport,
+                                currencySymbol = sym,
+                                onZoomPhoto = { zoomPhotoPath = it },
+                                onUpdateStatus = { newStatus ->
+                                    viewModel.updateDamageReportStatus(targetReport.id, newStatus)
+                                },
+                                onEdit = {
+                                    editingReport = targetReport
+                                    showFormDialog = true
+                                },
+                                onDelete = { deleteCandidate = targetReport },
+                            )
+                        }
+                    }
                 }
             } else {
                 LazyColumn(

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -88,6 +89,7 @@ import com.loypos.app.ui.components.GroupCard
 import com.loypos.app.ui.components.PillBadge
 import com.loypos.app.ui.components.SectionHeader
 import com.loypos.app.ui.theme.LocalLoyMetrics
+import com.loypos.app.ui.theme.LocalLoyWindowSize
 import com.loypos.app.ui.theme.LoyBackground
 import com.loypos.app.ui.theme.LoyBorder
 import com.loypos.app.ui.theme.LoyError
@@ -140,6 +142,7 @@ fun AgreementTemplatesScreen(
             )
         }
     }
+    val windowSize = LocalLoyWindowSize.current
 
     Scaffold(
         topBar = {
@@ -193,103 +196,118 @@ fun AgreementTemplatesScreen(
         },
         containerColor = LoyBackground,
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .navigationBarsPadding(),
-            contentPadding = PaddingValues(metrics.screenPadding, metrics.screenPadding, metrics.screenPadding, 80.dp),
-            verticalArrangement = Arrangement.spacedBy(metrics.sectionGap),
-        ) {
-            item {
-                SectionHeader("Stored Digital Contract Templates")
-            }
-
-            if (data.agreementTemplates.isEmpty()) {
+        val templatesListContent: @Composable (Modifier) -> Unit = { listModifier ->
+            LazyColumn(
+                modifier = listModifier,
+                contentPadding = PaddingValues(metrics.screenPadding, metrics.screenPadding, metrics.screenPadding, 80.dp),
+                verticalArrangement = Arrangement.spacedBy(metrics.sectionGap),
+            ) {
                 item {
-                    GroupCard {
-                        EmptyState(
-                            icon = Icons.Outlined.Description,
-                            title = "No agreement templates yet",
-                            subtitle = "Create reusable digital rental contracts with auto-filled order fields.",
-                        )
-                    }
+                    SectionHeader("Stored Digital Contract Templates")
                 }
-            } else {
-                items(data.agreementTemplates, key = { it.id }) { tpl ->
-                    val isSelectedPreview = activePreviewTemplate?.id == tpl.id
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = LoySurface,
-                        border = BorderStroke(if (isSelectedPreview) 1.5.dp else 1.dp, if (isSelectedPreview) LoyGreen else LoyBorder),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable { previewTemplate = tpl }
-                            .testTag("agreement_template_card_${tpl.id}"),
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(metrics.cardPadding),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
+
+                if (data.agreementTemplates.isEmpty()) {
+                    item {
+                        GroupCard {
+                            EmptyState(
+                                icon = Icons.Outlined.Description,
+                                title = "No agreement templates yet",
+                                subtitle = "Create reusable digital rental contracts with auto-filled order fields.",
+                            )
+                        }
+                    }
+                } else {
+                    items(data.agreementTemplates, key = { it.id }) { tpl ->
+                        val isSelectedPreview = activePreviewTemplate?.id == tpl.id
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (isSelectedPreview) LoyGreenLight.copy(alpha = 0.22f) else LoySurface,
+                            border = BorderStroke(if (isSelectedPreview) 1.5.dp else 1.dp, if (isSelectedPreview) LoyGreen else LoyBorder),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable { previewTemplate = tpl }
+                                .testTag("agreement_template_card_${tpl.id}"),
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween,
+                            Column(
+                                modifier = Modifier.padding(metrics.cardPadding),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        Text(tpl.title, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        if (tpl.isDefault) {
-                                            PillBadge("Default", backgroundColor = LoyGreenLight, textColor = LoyGreen)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            Text(tpl.title, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            if (tpl.isDefault) {
+                                                PillBadge("Default", backgroundColor = LoyGreenLight, textColor = LoyGreen)
+                                            }
+                                        }
+                                        Text(tpl.category, style = MaterialTheme.typography.bodySmall, color = LoyTextSecondary)
+                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        IconButton(
+                                            onClick = { viewModel.setDefaultAgreementTemplate(tpl.id) },
+                                            modifier = Modifier.accessibleTouchTarget(44.dp),
+                                        ) {
+                                            Icon(
+                                                if (tpl.isDefault) Icons.Outlined.Star else Icons.Outlined.StarOutline,
+                                                contentDescription = "Set default template",
+                                                tint = if (tpl.isDefault) LoyGreen else LoyTextSecondary,
+                                                modifier = Modifier.size(19.dp),
+                                            )
+                                        }
+                                        IconButton(
+                                            onClick = { viewModel.duplicateAgreementTemplate(tpl) },
+                                            modifier = Modifier.accessibleTouchTarget(44.dp),
+                                        ) {
+                                            Icon(Icons.Outlined.ContentCopy, contentDescription = "Duplicate template", tint = LoyTextSecondary, modifier = Modifier.size(18.dp))
+                                        }
+                                        IconButton(
+                                            onClick = {
+                                                isCreating = false
+                                                editingTemplate = tpl
+                                            },
+                                            modifier = Modifier.accessibleTouchTarget(44.dp).testTag("agreement_edit_${tpl.id}"),
+                                        ) {
+                                            Icon(Icons.Outlined.Edit, contentDescription = "Edit template", tint = LoyGreen, modifier = Modifier.size(18.dp))
                                         }
                                     }
-                                    Text(tpl.category, style = MaterialTheme.typography.bodySmall, color = LoyTextSecondary)
                                 }
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    IconButton(
-                                        onClick = { viewModel.setDefaultAgreementTemplate(tpl.id) },
-                                        modifier = Modifier.accessibleTouchTarget(44.dp),
-                                    ) {
-                                        Icon(
-                                            if (tpl.isDefault) Icons.Outlined.Star else Icons.Outlined.StarOutline,
-                                            contentDescription = "Set default template",
-                                            tint = if (tpl.isDefault) LoyGreen else LoyTextSecondary,
-                                            modifier = Modifier.size(19.dp),
-                                        )
-                                    }
-                                    IconButton(
-                                        onClick = { viewModel.duplicateAgreementTemplate(tpl) },
-                                        modifier = Modifier.accessibleTouchTarget(44.dp),
-                                    ) {
-                                        Icon(Icons.Outlined.ContentCopy, contentDescription = "Duplicate template", tint = LoyTextSecondary, modifier = Modifier.size(18.dp))
-                                    }
-                                    IconButton(
-                                        onClick = {
-                                            isCreating = false
-                                            editingTemplate = tpl
-                                        },
-                                        modifier = Modifier.accessibleTouchTarget(44.dp).testTag("agreement_edit_${tpl.id}"),
-                                    ) {
-                                        Icon(Icons.Outlined.Edit, contentDescription = "Edit template", tint = LoyGreen, modifier = Modifier.size(18.dp))
-                                    }
-                                }
+                                Text(
+                                    text = tpl.body.lineSequence().take(3).joinToString(" ").take(140),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = LoyTextSecondary,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
                             }
-                            Text(
-                                text = tpl.body.lineSequence().take(3).joinToString(" ").take(140),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = LoyTextSecondary,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
                         }
                     }
                 }
             }
+        }
 
-            if (activePreviewTemplate != null) {
-                item {
-                    SectionHeader("Live Auto-Populated Order Preview")
+        val livePreviewPanel: @Composable (Modifier) -> Unit = { panelModifier ->
+            if (activePreviewTemplate == null) {
+                Box(panelModifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    EmptyState(
+                        icon = Icons.Outlined.Description,
+                        title = "Select an agreement template",
+                        subtitle = "Choose a contract template on the left to inspect its auto-populated order preview.",
+                    )
+                }
+            } else {
+                Column(
+                    modifier = panelModifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(metrics.screenPadding),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    SectionHeader("Live Auto-Populated Order Preview · ${activePreviewTemplate.title}")
                     GroupCard {
                         Column(
                             modifier = Modifier.padding(metrics.cardPadding),
@@ -390,6 +408,224 @@ fun AgreementTemplatesScreen(
                                     Icon(Icons.Outlined.PictureAsPdf, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(Modifier.width(4.dp))
                                     Text("PDF", maxLines = 1)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (windowSize.useSplitPane) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .navigationBarsPadding(),
+            ) {
+                templatesListContent(Modifier.weight(0.42f).fillMaxHeight())
+                Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(LoyBorder))
+                livePreviewPanel(Modifier.weight(0.58f).fillMaxHeight())
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .navigationBarsPadding(),
+                contentPadding = PaddingValues(metrics.screenPadding, metrics.screenPadding, metrics.screenPadding, 80.dp),
+                verticalArrangement = Arrangement.spacedBy(metrics.sectionGap),
+            ) {
+                item {
+                    SectionHeader("Stored Digital Contract Templates")
+                }
+
+                if (data.agreementTemplates.isEmpty()) {
+                    item {
+                        GroupCard {
+                            EmptyState(
+                                icon = Icons.Outlined.Description,
+                                title = "No agreement templates yet",
+                                subtitle = "Create reusable digital rental contracts with auto-filled order fields.",
+                            )
+                        }
+                    }
+                } else {
+                    items(data.agreementTemplates, key = { it.id }) { tpl ->
+                        val isSelectedPreview = activePreviewTemplate?.id == tpl.id
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = LoySurface,
+                            border = BorderStroke(if (isSelectedPreview) 1.5.dp else 1.dp, if (isSelectedPreview) LoyGreen else LoyBorder),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable { previewTemplate = tpl }
+                                .testTag("agreement_template_card_${tpl.id}"),
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(metrics.cardPadding),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            Text(tpl.title, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            if (tpl.isDefault) {
+                                                PillBadge("Default", backgroundColor = LoyGreenLight, textColor = LoyGreen)
+                                            }
+                                        }
+                                        Text(tpl.category, style = MaterialTheme.typography.bodySmall, color = LoyTextSecondary)
+                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        IconButton(
+                                            onClick = { viewModel.setDefaultAgreementTemplate(tpl.id) },
+                                            modifier = Modifier.accessibleTouchTarget(44.dp),
+                                        ) {
+                                            Icon(
+                                                if (tpl.isDefault) Icons.Outlined.Star else Icons.Outlined.StarOutline,
+                                                contentDescription = "Set default template",
+                                                tint = if (tpl.isDefault) LoyGreen else LoyTextSecondary,
+                                                modifier = Modifier.size(19.dp),
+                                            )
+                                        }
+                                        IconButton(
+                                            onClick = { viewModel.duplicateAgreementTemplate(tpl) },
+                                            modifier = Modifier.accessibleTouchTarget(44.dp),
+                                        ) {
+                                            Icon(Icons.Outlined.ContentCopy, contentDescription = "Duplicate template", tint = LoyTextSecondary, modifier = Modifier.size(18.dp))
+                                        }
+                                        IconButton(
+                                            onClick = {
+                                                isCreating = false
+                                                editingTemplate = tpl
+                                            },
+                                            modifier = Modifier.accessibleTouchTarget(44.dp).testTag("agreement_edit_${tpl.id}"),
+                                        ) {
+                                            Icon(Icons.Outlined.Edit, contentDescription = "Edit template", tint = LoyGreen, modifier = Modifier.size(18.dp))
+                                        }
+                                    }
+                                }
+                                Text(
+                                    text = tpl.body.lineSequence().take(3).joinToString(" ").take(140),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = LoyTextSecondary,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (activePreviewTemplate != null) {
+                    item {
+                        SectionHeader("Live Auto-Populated Order Preview")
+                        GroupCard {
+                            Column(
+                                modifier = Modifier.padding(metrics.cardPadding),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                ExposedDropdownMenuBox(
+                                    expanded = orderPickerExpanded,
+                                    onExpandedChange = { orderPickerExpanded = !orderPickerExpanded },
+                                ) {
+                                    val currentLabel = if (selectedOrder != null) {
+                                        val r = selectedOrder.receipt
+                                        "#${r.number.toString().padStart(4, '0')} · ${r.customerName ?: "Walk-in"} (${formatCents(r.totalCents, data.settings.currencySymbol)})"
+                                    } else {
+                                        "Sample Order Preview (#0042 · Gala Night)"
+                                    }
+                                    OutlinedTextField(
+                                        value = currentLabel,
+                                        onValueChange = {},
+                                        readOnly = true,
+                                        label = { Text("Populate With Rental Order") },
+                                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = orderPickerExpanded) },
+                                        modifier = Modifier
+                                            .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                                            .fillMaxWidth()
+                                            .testTag("agreement_order_selector"),
+                                    )
+                                    ExposedDropdownMenu(
+                                        expanded = orderPickerExpanded,
+                                        onDismissRequest = { orderPickerExpanded = false },
+                                    ) {
+                                        if (data.receipts.isEmpty()) {
+                                            DropdownMenuItem(
+                                                text = { Text("Sample Order Preview (#0042)") },
+                                                onClick = { orderPickerExpanded = false },
+                                            )
+                                        } else {
+                                            data.receipts.take(25).forEach { rec ->
+                                                val r = rec.receipt
+                                                DropdownMenuItem(
+                                                    text = { Text("#${r.number.toString().padStart(4, '0')} · ${r.customerName ?: "Client"} · ${r.eventName}") },
+                                                    onClick = {
+                                                        selectedOrderId = r.id
+                                                        orderPickerExpanded = false
+                                                    },
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = LoyBackground,
+                                    border = BorderStroke(1.dp, LoyBorder),
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text(
+                                        text = populatedPreviewText,
+                                        fontFamily = FontFamily.Serif,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = LoyTextPrimary,
+                                        modifier = Modifier.padding(12.dp),
+                                    )
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            clipboard.setText(AnnotatedString(populatedPreviewText))
+                                            viewModel.showMessage("Populated agreement copied to clipboard")
+                                        },
+                                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                                    ) {
+                                        Icon(Icons.Outlined.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("Copy", maxLines = 1)
+                                    }
+                                    OutlinedButton(
+                                        onClick = {
+                                            viewModel.shareAgreementText(activePreviewTemplate.title, populatedPreviewText)
+                                        },
+                                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                                    ) {
+                                        Icon(Icons.Outlined.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("Share", maxLines = 1)
+                                    }
+                                    Button(
+                                        onClick = {
+                                            val orderTag = selectedOrder?.receipt?.number?.let { "order-${it.toString().padStart(4, '0')}" } ?: "sample"
+                                            viewModel.shareAgreementPdf(activePreviewTemplate.title, orderTag, populatedPreviewText)
+                                        },
+                                        modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("agreement_export_pdf_button"),
+                                    ) {
+                                        Icon(Icons.Outlined.PictureAsPdf, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("PDF", maxLines = 1)
+                                    }
                                 }
                             }
                         }

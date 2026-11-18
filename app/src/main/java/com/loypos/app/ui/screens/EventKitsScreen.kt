@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -75,7 +76,9 @@ import com.loypos.app.ui.components.ConfirmDialog
 import com.loypos.app.ui.components.EmptyState
 import com.loypos.app.ui.components.GroupCard
 import com.loypos.app.ui.components.PillBadge
+import com.loypos.app.ui.components.StatBlock
 import com.loypos.app.ui.theme.LocalLoyMetrics
+import com.loypos.app.ui.theme.LocalLoyWindowSize
 import com.loypos.app.ui.theme.LoyBackground
 import com.loypos.app.ui.theme.LoyBorder
 import com.loypos.app.ui.theme.LoyError
@@ -106,7 +109,9 @@ fun EventKitsScreen(
 ) {
     val metrics = LocalLoyMetrics.current
     val sym = data.settings.currencySymbol
+    val windowSize = LocalLoyWindowSize.current
     var searchQuery by remember { mutableStateOf("") }
+    var selectedKitId by remember { mutableStateOf<String?>(null) }
     var editingKit by remember { mutableStateOf<EventKitWithItems?>(null) }
     var showEditor by remember { mutableStateOf(false) }
     var deleteCandidate by remember { mutableStateOf<EventKitWithItems?>(null) }
@@ -125,6 +130,9 @@ fun EventKitsScreen(
                     entry.items.any { it.itemName.lowercase().contains(q) }
             }
         }
+    }
+    val activeKit = remember(filteredKits, selectedKitId) {
+        filteredKits.firstOrNull { it.kit.id == selectedKitId } ?: filteredKits.firstOrNull()
     }
 
     Scaffold(
@@ -202,6 +210,114 @@ fun EventKitsScreen(
                         },
                     )
                 }
+            } else if (windowSize.useSplitPane) {
+                Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    LazyColumn(
+                        modifier = Modifier.weight(0.42f).fillMaxHeight(),
+                        contentPadding = PaddingValues(metrics.screenPadding),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(filteredKits, key = { it.kit.id }) { kitWithItems ->
+                            val kit = kitWithItems.kit
+                            val isSelected = activeKit?.kit?.id == kit.id
+                            val rawDaily = kitWithItems.items.sumOf { line ->
+                                ((catalogById[line.itemId]?.priceCents ?: 0L) * line.qty).roundToLong()
+                            }
+                            val finalDaily = if (kit.discountPercent > 0.0) {
+                                (rawDaily * (1.0 - kit.discountPercent / 100.0)).roundToLong()
+                            } else {
+                                rawDaily
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (isSelected) LoyGreenLight.copy(alpha = 0.25f) else LoySurface,
+                                border = BorderStroke(if (isSelected) 1.5.dp else 1.dp, if (isSelected) LoyGreen else LoyBorder),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable { selectedKitId = kit.id }
+                                    .testTag("event_kit_card_${kit.id}"),
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(5.dp),
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(
+                                            text = kit.name,
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = LoyTextPrimary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        Text(
+                                            text = "${formatCents(finalDaily, sym)}/d",
+                                            style = TabularMoneyStyle,
+                                            fontWeight = FontWeight.Bold,
+                                            color = LoyGreen,
+                                        )
+                                    }
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        PillBadge(
+                                            text = kit.category.ifBlank { "Event Kit" },
+                                            backgroundColor = LoyInfoLight,
+                                            textColor = LoyInfo,
+                                        )
+                                        if (kit.discountPercent > 0.0) {
+                                            PillBadge(
+                                                text = "${kit.discountPercent.toInt()}% Off",
+                                                backgroundColor = LoyGreenLight,
+                                                textColor = LoyGreenDarkText,
+                                            )
+                                        }
+                                        Text(
+                                            text = "${kitWithItems.items.size} tools",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = LoyTextSecondary,
+                                            modifier = Modifier.align(Alignment.CenterVertically),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(LoyBorder))
+                    Box(modifier = Modifier.weight(0.58f).fillMaxHeight()) {
+                        val kitDetail = activeKit
+                        if (kitDetail == null) {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                EmptyState(
+                                    icon = Icons.Outlined.Layers,
+                                    title = "Select an Event Kit",
+                                    subtitle = "Pick a bundle on the left to inspect its included gear and add it to a rental order.",
+                                )
+                            }
+                        } else {
+                            EventKitInspectorPane(
+                                kitWithItems = kitDetail,
+                                catalogById = catalogById,
+                                currencySymbol = sym,
+                                onAddToOrder = {
+                                    val outcome = transactionViewModel.addEventKit(kitDetail, data.items)
+                                    if (outcome.addedLines > 0) {
+                                        onAddedToOrder()
+                                    }
+                                },
+                                onEdit = {
+                                    editingKit = kitDetail
+                                    showEditor = true
+                                },
+                                onDelete = { deleteCandidate = kitDetail },
+                            )
+                        }
+                    }
+                }
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
@@ -273,6 +389,148 @@ fun EventKitsScreen(
             },
             onDismiss = { deleteCandidate = null },
         )
+    }
+}
+
+@Composable
+private fun EventKitInspectorPane(
+    kitWithItems: EventKitWithItems,
+    catalogById: Map<String, ItemEntity>,
+    currencySymbol: String,
+    onAddToOrder: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val kit = kitWithItems.kit
+    val metrics = LocalLoyMetrics.current
+    val rawDailyCents = remember(kitWithItems, catalogById) {
+        kitWithItems.items.sumOf { line ->
+            ((catalogById[line.itemId]?.priceCents ?: 0L) * line.qty).roundToLong()
+        }
+    }
+    val discountedDailyCents = remember(rawDailyCents, kit.discountPercent) {
+        if (kit.discountPercent > 0.0) {
+            (rawDailyCents * (1.0 - kit.discountPercent / 100.0)).roundToLong()
+        } else {
+            rawDailyCents
+        }
+    }
+    val totalUnits = remember(kitWithItems) { kitWithItems.items.sumOf { it.qty } }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Surface(color = LoySurface) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = metrics.screenPadding, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(kit.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        "${kit.category.ifBlank { "Event Kit" }} · ${kitWithItems.items.size} equipment types",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = LoyTextSecondary,
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    IconButton(onClick = onEdit, modifier = Modifier.accessibleTouchTarget(metrics.minTouchTarget).testTag("edit_kit_${kit.id}")) {
+                        Icon(Icons.Outlined.Edit, contentDescription = "Edit Kit", tint = LoyGreen)
+                    }
+                    IconButton(onClick = onDelete, modifier = Modifier.accessibleTouchTarget(metrics.minTouchTarget).testTag("delete_kit_${kit.id}")) {
+                        Icon(Icons.Outlined.DeleteOutline, contentDescription = "Delete Kit", tint = LoyError)
+                    }
+                }
+            }
+        }
+        HorizontalDivider(color = LoyBorder)
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(metrics.screenPadding),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                StatBlock(
+                    label = "Bundle Rate / Day",
+                    value = formatCents(discountedDailyCents, currencySymbol),
+                    valueColor = LoyGreen,
+                    modifier = Modifier.weight(1f),
+                )
+                StatBlock(
+                    label = "A La Carte Value",
+                    value = formatCents(rawDailyCents, currencySymbol),
+                    modifier = Modifier.weight(1f),
+                )
+                StatBlock(
+                    label = "Total Units",
+                    value = formatQty(totalUnits),
+                    valueColor = LoyInfo,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            if (kit.description.isNotBlank()) {
+                GroupCard {
+                    Text(
+                        text = kit.description,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = LoyTextPrimary,
+                        modifier = Modifier.padding(12.dp),
+                    )
+                }
+            }
+            GroupCard {
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Included Equipment Manifest", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    HorizontalDivider(color = LoyBorder)
+                    kitWithItems.items.forEachIndexed { idx, line ->
+                        if (idx > 0) HorizontalDivider(color = LoyBorder)
+                        val catalogItem = catalogById[line.itemId]
+                        val stockOk = catalogItem == null || !catalogItem.trackStock || catalogItem.stock >= line.qty
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            PillBadge(
+                                text = "${formatQty(line.qty)}×",
+                                backgroundColor = LoyGreenLight,
+                                textColor = LoyGreenDarkText,
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(catalogItem?.name ?: line.itemName, fontWeight = FontWeight.Medium)
+                                if (catalogItem != null && catalogItem.trackStock) {
+                                    Text(
+                                        "${formatQty(catalogItem.stock)} available in warehouse",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (stockOk) LoyTextSecondary else LoyWarning,
+                                    )
+                                }
+                            }
+                            if (catalogItem != null) {
+                                Text(
+                                    "${formatCents((catalogItem.priceCents * line.qty).roundToLong(), currencySymbol)}/d",
+                                    style = TabularMoneyStyle,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            Button(
+                onClick = onAddToOrder,
+                enabled = kitWithItems.items.isNotEmpty(),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("add_kit_to_order_${kit.id}"),
+            ) {
+                Icon(Icons.Outlined.AddShoppingCart, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Add Entire Kit to Order", fontWeight = FontWeight.SemiBold)
+            }
+        }
     }
 }
 

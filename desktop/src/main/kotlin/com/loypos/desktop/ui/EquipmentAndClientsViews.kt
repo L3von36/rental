@@ -8,6 +8,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -27,7 +28,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.CloudSync
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Download
@@ -50,6 +53,7 @@ import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -89,6 +93,7 @@ import com.loypos.desktop.core.searchDesktopRentalAgreements
 import com.loypos.desktop.data.DesktopRepository
 import com.loypos.desktop.model.DesktopClient
 import com.loypos.desktop.model.DesktopEquipment
+import com.loypos.desktop.model.DesktopRentalOrder
 import com.loypos.desktop.model.DesktopStoreSnapshot
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -100,6 +105,7 @@ import kotlin.math.roundToInt
 
 @Composable
 fun DesktopDashboardView(
+    repository: DesktopRepository,
     snapshot: DesktopStoreSnapshot,
     onOpenRentDesk: () -> Unit,
     onOpenRentals: () -> Unit,
@@ -110,16 +116,25 @@ fun DesktopDashboardView(
     onOpenAgreements: () -> Unit = {},
     onOpenEventKits: () -> Unit = {},
     onOpenDamageLog: () -> Unit = {},
+    onReportDamage: (DesktopRentalOrder) -> Unit = {},
+    onToast: (String) -> Unit = {},
 ) {
     val sym = snapshot.settings.currencySymbol
     var agreementSearchQuery by remember { mutableStateOf("") }
     var agreementTimeframeFilter by remember { mutableStateOf(DesktopRentalTimeframeFilter.ALL) }
-    var selectedSearchResult by remember { mutableStateOf<DesktopRentalAgreementSearchResult?>(null) }
+    var inspectedOrderId by remember { mutableStateOf<String?>(null) }
+    var inspectedQuoteResult by remember { mutableStateOf<DesktopRentalAgreementSearchResult?>(null) }
     val now = remember(snapshot.orders) { nowMs() }
     val completed = remember(snapshot.orders) { snapshot.orders.filter { it.isCompleted } }
     val dueWithin24h = remember(snapshot.orders, now) {
         DesktopRentalReturnReminderCalculator.findRentalsDueWithin24Hours(snapshot.orders, now)
     }
+    val due24hIds = remember(dueWithin24h) { dueWithin24h.map { it.order.id }.toSet() }
+    val inspectedOrder = remember(snapshot.orders, inspectedOrderId) {
+        inspectedOrderId?.let { id -> snapshot.orders.firstOrNull { it.id == id } }
+    }
+    val showInspector = inspectedOrder != null || inspectedQuoteResult != null
+
     val agreementSearchOutput = remember(
         agreementSearchQuery,
         agreementTimeframeFilter,
@@ -181,442 +196,624 @@ fun DesktopDashboardView(
         }.sortedByDescending { it.third.first }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(LoyBackground)
-            .verticalScroll(rememberScrollState())
-            .padding(18.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        // 4 Executive KPI Cards
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-            DesktopKpiTile(
-                label = "Net Rental Revenue",
-                value = formatCents(netRevenueCents, sym),
-                accentColor = LoyGreen,
-                caption = "${completed.size} completed agreements",
-                modifier = Modifier.weight(1f),
-            )
-            DesktopKpiTile(
-                label = "Active Rentals Out",
-                value = activeOutCount.toString(),
-                accentColor = LoyInfo,
-                caption = "${snapshot.heldQuotes.size} held quotes open",
-                modifier = Modifier.weight(1f),
-            )
-            DesktopKpiTile(
-                label = "Due <24h / Overdue",
-                value = "${dueWithin24h.size} / $overdueCount",
-                accentColor = if (overdueCount > 0) LoyError else if (dueWithin24h.isNotEmpty()) LoyWarning else LoyGreen,
-                caption = if (dueWithin24h.isEmpty()) "All returns on schedule" else "Click top monitor to filter",
-                modifier = Modifier.weight(1f),
-            )
-            DesktopKpiTile(
-                label = "Low Fleet Alerts",
-                value = lowOrOutItems.size.toString(),
-                accentColor = if (lowOrOutItems.isNotEmpty()) LoyWarning else LoyGreen,
-                caption = "Global threshold: ${formatQty(lowThreshold)} units",
-                modifier = Modifier.weight(1f),
-            )
-        }
+    Row(modifier = Modifier.fillMaxSize().background(LoyBackground)) {
+        BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxHeight()) {
+            val useFourColKpis = maxWidth >= 800.dp
+            val useTwoColPanels = maxWidth >= 820.dp
 
-        // Global Rental Agreement Search Card
-        DesktopSectionCard(
-            title = "Find Rental Agreements",
-            subtitle = "${agreementSearchOutput.allCount} total · ${agreementSearchOutput.currentCount} current · ${agreementSearchOutput.futureCount} future · ${agreementSearchOutput.pastCount} past",
-            headerAction = {
-                DesktopSegmentedControl(
-                    options = listOf(
-                        DesktopRentalTimeframeFilter.ALL to "All (${agreementSearchOutput.allCount})",
-                        DesktopRentalTimeframeFilter.CURRENT to "Current (${agreementSearchOutput.currentCount})",
-                        DesktopRentalTimeframeFilter.FUTURE to "Future (${agreementSearchOutput.futureCount})",
-                        DesktopRentalTimeframeFilter.PAST to "Past (${agreementSearchOutput.pastCount})",
-                    ),
-                    selected = agreementTimeframeFilter,
-                    onSelect = { agreementTimeframeFilter = it },
-                )
-            },
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                DesktopSearchInput(
-                    value = agreementSearchQuery,
-                    onValueChange = { agreementSearchQuery = it },
-                    placeholder = "Search past, current, or future agreements by customer name or equipment ID (e.g. eq-001, TENT-2020)...",
-                    modifier = Modifier.weight(1f),
-                )
-                if (agreementSearchQuery.isNotBlank() || agreementTimeframeFilter != DesktopRentalTimeframeFilter.ALL) {
-                    DesktopSecondaryButton(
-                        text = "Reset",
-                        onClick = {
-                            agreementSearchQuery = ""
-                            agreementTimeframeFilter = DesktopRentalTimeframeFilter.ALL
-                        },
-                    )
-                }
-            }
-
-            val showResults = agreementSearchQuery.isNotBlank() || agreementTimeframeFilter != DesktopRentalTimeframeFilter.ALL
-            if (showResults) {
-                if (agreementSearchOutput.results.isEmpty()) {
-                    Text(
-                        text = "No matching rental agreements. Try another customer name, equipment ID/SKU, or timeframe.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = LoyTextMuted,
-                        modifier = Modifier.padding(vertical = 4.dp),
-                    )
+                // Responsive KPI Grid (4 columns when wide, 2x2 when docked inspector is open)
+                if (useFourColKpis) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                        DesktopKpiTile(
+                            label = "Net Rental Revenue",
+                            value = formatCents(netRevenueCents, sym),
+                            accentColor = LoyGreen,
+                            caption = "${completed.size} completed agreements",
+                            modifier = Modifier.weight(1f),
+                        )
+                        DesktopKpiTile(
+                            label = "Active Rentals Out",
+                            value = activeOutCount.toString(),
+                            accentColor = LoyInfo,
+                            caption = "${snapshot.heldQuotes.size} held quotes open",
+                            modifier = Modifier.weight(1f),
+                        )
+                        DesktopKpiTile(
+                            label = "Due <24h / Overdue",
+                            value = "${dueWithin24h.size} / $overdueCount",
+                            accentColor = if (overdueCount > 0) LoyError else if (dueWithin24h.isNotEmpty()) LoyWarning else LoyGreen,
+                            caption = if (dueWithin24h.isEmpty()) "All returns on schedule" else "Click top monitor to filter",
+                            modifier = Modifier.weight(1f),
+                        )
+                        DesktopKpiTile(
+                            label = "Low Fleet Alerts",
+                            value = lowOrOutItems.size.toString(),
+                            accentColor = if (lowOrOutItems.isNotEmpty()) LoyWarning else LoyGreen,
+                            caption = "Global threshold: ${formatQty(lowThreshold)} units",
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                 } else {
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        border = BorderStroke(1.dp, LoyBorder),
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                            DesktopKpiTile(
+                                label = "Net Rental Revenue",
+                                value = formatCents(netRevenueCents, sym),
+                                accentColor = LoyGreen,
+                                caption = "${completed.size} completed agreements",
+                                modifier = Modifier.weight(1f),
+                            )
+                            DesktopKpiTile(
+                                label = "Active Rentals Out",
+                                value = activeOutCount.toString(),
+                                accentColor = LoyInfo,
+                                caption = "${snapshot.heldQuotes.size} held quotes open",
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                            DesktopKpiTile(
+                                label = "Due <24h / Overdue",
+                                value = "${dueWithin24h.size} / $overdueCount",
+                                accentColor = if (overdueCount > 0) LoyError else if (dueWithin24h.isNotEmpty()) LoyWarning else LoyGreen,
+                                caption = if (dueWithin24h.isEmpty()) "All returns on schedule" else "Click top monitor to filter",
+                                modifier = Modifier.weight(1f),
+                            )
+                            DesktopKpiTile(
+                                label = "Low Fleet Alerts",
+                                value = lowOrOutItems.size.toString(),
+                                accentColor = if (lowOrOutItems.isNotEmpty()) LoyWarning else LoyGreen,
+                                caption = "Global threshold: ${formatQty(lowThreshold)} units",
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                }
+
+                // Global Rental Agreement Search Card
+                DesktopSectionCard(
+                    title = "Find Rental Agreements",
+                    subtitle = "${agreementSearchOutput.allCount} total · ${agreementSearchOutput.currentCount} current · ${agreementSearchOutput.futureCount} future · ${agreementSearchOutput.pastCount} past",
+                    headerAction = {
+                        DesktopSegmentedControl(
+                            options = listOf(
+                                DesktopRentalTimeframeFilter.ALL to "All (${agreementSearchOutput.allCount})",
+                                DesktopRentalTimeframeFilter.CURRENT to "Current (${agreementSearchOutput.currentCount})",
+                                DesktopRentalTimeframeFilter.FUTURE to "Future (${agreementSearchOutput.futureCount})",
+                                DesktopRentalTimeframeFilter.PAST to "Past (${agreementSearchOutput.pastCount})",
+                            ),
+                            selected = agreementTimeframeFilter,
+                            onSelect = { agreementTimeframeFilter = it },
+                        )
+                    },
+                ) {
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Column {
-                            DesktopTableHeaderRow {
-                                DesktopTableHeaderText("Agreement", Modifier.width(90.dp))
-                                DesktopTableHeaderText("Customer & Event", Modifier.weight(1.3f))
-                                DesktopTableHeaderText("Rental Window", Modifier.weight(1.1f))
-                                DesktopTableHeaderText("Equipment IDs", Modifier.weight(1.0f))
-                                DesktopTableHeaderText("Status", Modifier.width(120.dp))
-                                DesktopTableHeaderText("Total", Modifier.width(86.dp))
+                        DesktopSearchInput(
+                            value = agreementSearchQuery,
+                            onValueChange = { agreementSearchQuery = it },
+                            placeholder = "Search past, current, or future agreements by customer name or equipment ID (e.g. eq-001, TENT-2020)...",
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (agreementSearchQuery.isNotBlank() || agreementTimeframeFilter != DesktopRentalTimeframeFilter.ALL) {
+                            DesktopSecondaryButton(
+                                text = "Reset",
+                                onClick = {
+                                    agreementSearchQuery = ""
+                                    agreementTimeframeFilter = DesktopRentalTimeframeFilter.ALL
+                                },
+                            )
+                        }
+                    }
+
+                    val showResults = agreementSearchQuery.isNotBlank() || agreementTimeframeFilter != DesktopRentalTimeframeFilter.ALL
+                    if (showResults) {
+                        if (agreementSearchOutput.results.isEmpty()) {
+                            Text(
+                                text = "No matching rental agreements. Try another customer name, equipment ID/SKU, or timeframe.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = LoyTextMuted,
+                                modifier = Modifier.padding(vertical = 4.dp),
+                            )
+                        } else {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                border = BorderStroke(1.dp, LoyBorder),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Column {
+                                    DesktopTableHeaderRow {
+                                        DesktopTableHeaderText("Agreement", Modifier.width(90.dp))
+                                        DesktopTableHeaderText("Customer & Event", Modifier.weight(1.3f))
+                                        DesktopTableHeaderText("Rental Window", Modifier.weight(1.1f))
+                                        DesktopTableHeaderText("Equipment IDs", Modifier.weight(1.0f))
+                                        DesktopTableHeaderText("Status", Modifier.width(120.dp))
+                                        DesktopTableHeaderText("Total", Modifier.width(86.dp))
+                                    }
+                                    agreementSearchOutput.results.take(8).forEach { res ->
+                                        val isRowSelected = if (res.isHeldQuote) {
+                                            inspectedQuoteResult?.id == res.id
+                                        } else {
+                                            inspectedOrderId == res.id
+                                        }
+                                        DesktopTableRow(
+                                            selected = isRowSelected,
+                                            onClick = {
+                                                if (res.isHeldQuote) {
+                                                    inspectedOrderId = null
+                                                    inspectedQuoteResult = res
+                                                } else {
+                                                    inspectedQuoteResult = null
+                                                    inspectedOrderId = res.id
+                                                }
+                                            },
+                                        ) {
+                                            Text(
+                                                text = res.agreementNumberLabel,
+                                                style = MaterialTheme.typography.labelLarge.copy(fontFamily = FontFamily.Monospace),
+                                                color = LoyGreenDark,
+                                                modifier = Modifier.width(90.dp),
+                                            )
+                                            Column(modifier = Modifier.weight(1.3f)) {
+                                                Text(
+                                                    text = res.customerName,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                )
+                                                if (res.eventName.isNotBlank()) {
+                                                    Text(
+                                                        text = res.eventName,
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = LoyTextMuted,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                    )
+                                                }
+                                            }
+                                            Text(
+                                                text = "${formatShortDate(res.rentalStartMs)} → ${formatShortDate(res.rentalEndMs)} (${res.rentalDays}d)",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = LoyTextSecondary,
+                                                modifier = Modifier.weight(1.1f),
+                                            )
+                                            Text(
+                                                text = res.equipmentIds.take(3).joinToString(", ").ifBlank { "—" },
+                                                style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                                                color = LoyTextSecondary,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1.0f),
+                                            )
+                                            Box(modifier = Modifier.width(120.dp)) {
+                                                DesktopBadge(
+                                                    text = "${res.timeframe.label} · ${res.statusBadge}",
+                                                    bgColor = when {
+                                                        res.isRefunded || res.isOverdue -> LoyErrorLight
+                                                        res.timeframe == DesktopRentalAgreementTimeframe.CURRENT -> LoyWarningLight
+                                                        res.timeframe == DesktopRentalAgreementTimeframe.FUTURE -> LoyInfoLight
+                                                        else -> LoyGreenLight
+                                                    },
+                                                    fgColor = when {
+                                                        res.isRefunded || res.isOverdue -> LoyError
+                                                        res.timeframe == DesktopRentalAgreementTimeframe.CURRENT -> LoyWarning
+                                                        res.timeframe == DesktopRentalAgreementTimeframe.FUTURE -> LoyInfo
+                                                        else -> LoyGreenDark
+                                                    },
+                                                )
+                                            }
+                                            Text(
+                                                text = formatCents(res.totalCents, sym),
+                                                style = TabularMoneyStyle.merge(MaterialTheme.typography.bodySmall),
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (res.isRefunded) LoyError else LoyTextPrimary,
+                                                textAlign = TextAlign.End,
+                                                modifier = Modifier.width(86.dp),
+                                            )
+                                        }
+                                    }
+                                }
                             }
-                            agreementSearchOutput.results.take(8).forEach { res ->
-                                DesktopTableRow(onClick = { selectedSearchResult = res }) {
+                        }
+                    }
+                }
+
+                // Operations Tables: Return Alerts / Recent Orders & Fleet Watchlist
+                val recentOrdersCard: @Composable (Modifier) -> Unit = { cardModifier ->
+                    DesktopSectionCard(
+                        title = if (dueWithin24h.isNotEmpty()) "Returns Due Within 24h & Recent Orders" else "Recent Rental Orders",
+                        subtitle = if (dueWithin24h.isNotEmpty()) "${dueWithin24h.size} alert(s) · click any row to inspect inline" else "Click any rental row to inspect details",
+                        headerAction = {
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                if (dueWithin24h.isNotEmpty()) {
+                                    DesktopSecondaryButton(
+                                        text = "Due <24h (${dueWithin24h.size})",
+                                        icon = Icons.Outlined.NotificationsActive,
+                                        contentColor = LoyWarning,
+                                        onClick = onOpenDueRentals,
+                                    )
+                                }
+                                DesktopSecondaryButton(text = "View All", onClick = onOpenRentals)
+                            }
+                        },
+                        contentPadding = PaddingValues(0.dp),
+                        modifier = cardModifier,
+                    ) {
+                        if (snapshot.orders.isEmpty()) {
+                            DesktopEmptyState(
+                                icon = Icons.Outlined.Inventory2,
+                                title = "No Rental Orders Yet",
+                                subtitle = "Create a booking from Rent Desk to populate dispatch tracking.",
+                            )
+                        } else {
+                            DesktopTableHeaderRow {
+                                DesktopTableHeaderText("Order", Modifier.width(66.dp))
+                                DesktopTableHeaderText("Client / Event", Modifier.weight(1.3f))
+                                DesktopTableHeaderText("Return", Modifier.weight(1f))
+                                DesktopTableHeaderText("Total", Modifier.width(82.dp))
+                            }
+                            val featuredOrders = remember(dueWithin24h, snapshot.orders) {
+                                val dueOrders = dueWithin24h.map { it.order }
+                                val dueIds = dueOrders.map { it.id }.toSet()
+                                (dueOrders + snapshot.orders.filterNot { it.id in dueIds }).take(6)
+                            }
+                            featuredOrders.forEach { o ->
+                                val dueInfo = dueWithin24h.firstOrNull { it.order.id == o.id }
+                                DesktopTableRow(
+                                    selected = inspectedOrderId == o.id,
+                                    onClick = {
+                                        inspectedQuoteResult = null
+                                        inspectedOrderId = o.id
+                                    },
+                                ) {
                                     Text(
-                                        text = res.agreementNumberLabel,
+                                        text = "#${o.number.toString().padStart(4, '0')}",
                                         style = MaterialTheme.typography.labelLarge.copy(fontFamily = FontFamily.Monospace),
                                         color = LoyGreenDark,
-                                        modifier = Modifier.width(90.dp),
+                                        modifier = Modifier.width(66.dp),
                                     )
                                     Column(modifier = Modifier.weight(1.3f)) {
                                         Text(
-                                            text = res.customerName,
+                                            text = o.customerName?.ifBlank { "Walk-in" } ?: "Walk-in",
                                             style = MaterialTheme.typography.bodySmall,
                                             fontWeight = FontWeight.SemiBold,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
                                         )
-                                        if (res.eventName.isNotBlank()) {
-                                            Text(
-                                                text = res.eventName,
+                                        Text(
+                                            text = o.eventName.ifBlank { formatDateTime(o.createdAt) },
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = LoyTextMuted,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                    Box(modifier = Modifier.weight(1f)) {
+                                        when {
+                                            dueInfo != null -> DesktopBadge(
+                                                text = DesktopRentalReturnReminderCalculator.formatRemainingLabel(dueInfo.msUntilDue),
+                                                bgColor = if (dueInfo.isOverdue) LoyErrorLight else LoyWarningLight,
+                                                fgColor = if (dueInfo.isOverdue) LoyError else LoyWarning,
+                                            )
+                                            o.isReturned -> DesktopBadge("Returned", LoyGreenLight, LoyGreenDark)
+                                            !o.isCompleted -> DesktopBadge("Refunded", LoyErrorLight, LoyError)
+                                            else -> Text(
+                                                text = "Due ${formatShortDate(o.rentalEndMs)}",
                                                 style = MaterialTheme.typography.labelSmall,
-                                                color = LoyTextMuted,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
+                                                color = LoyTextSecondary,
                                             )
                                         }
                                     }
                                     Text(
-                                        text = "${formatShortDate(res.rentalStartMs)} → ${formatShortDate(res.rentalEndMs)} (${res.rentalDays}d)",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = LoyTextSecondary,
-                                        modifier = Modifier.weight(1.1f),
+                                        text = formatCents(o.totalCents, sym),
+                                        style = TabularMoneyStyle.merge(MaterialTheme.typography.bodySmall),
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (o.isCompleted) LoyTextPrimary else LoyError,
+                                        textAlign = TextAlign.End,
+                                        modifier = Modifier.width(82.dp),
                                     )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                val fleetWatchlistCard: @Composable (Modifier) -> Unit = { cardModifier ->
+                    DesktopSectionCard(
+                        title = "Fleet Availability Watchlist",
+                        subtitle = if (lowOrOutItems.isEmpty()) "All ${snapshot.items.size} items healthy" else "${lowOrOutItems.size} item(s) below safety level",
+                        headerAction = {
+                            DesktopSecondaryButton(text = "Manage Fleet", onClick = onOpenEquipment)
+                        },
+                        contentPadding = PaddingValues(0.dp),
+                        modifier = cardModifier,
+                    ) {
+                        if (lowOrOutItems.isEmpty()) {
+                            Text(
+                                text = "All ${snapshot.items.size} equipment items are above safety stock levels.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = LoyGreenDark,
+                                modifier = Modifier.padding(16.dp),
+                            )
+                        } else {
+                            DesktopTableHeaderRow {
+                                DesktopTableHeaderText("SKU", Modifier.width(86.dp))
+                                DesktopTableHeaderText("Equipment", Modifier.weight(1.4f))
+                                DesktopTableHeaderText("Depot / Min", Modifier.width(110.dp))
+                            }
+                            lowOrOutItems.take(6).forEach { item ->
+                                val min = item.effectiveSafetyThreshold(lowThreshold)
+                                DesktopTableRow(onClick = onOpenEquipment) {
                                     Text(
-                                        text = res.equipmentIds.take(3).joinToString(", ").ifBlank { "—" },
+                                        text = item.sku.ifBlank { item.id },
                                         style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
                                         color = LoyTextSecondary,
                                         maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1.0f),
-                                    )
-                                    Box(modifier = Modifier.width(120.dp)) {
-                                        DesktopBadge(
-                                            text = "${res.timeframe.label} · ${res.statusBadge}",
-                                            bgColor = when {
-                                                res.isRefunded || res.isOverdue -> LoyErrorLight
-                                                res.timeframe == DesktopRentalAgreementTimeframe.CURRENT -> LoyWarningLight
-                                                res.timeframe == DesktopRentalAgreementTimeframe.FUTURE -> LoyInfoLight
-                                                else -> LoyGreenLight
-                                            },
-                                            fgColor = when {
-                                                res.isRefunded || res.isOverdue -> LoyError
-                                                res.timeframe == DesktopRentalAgreementTimeframe.CURRENT -> LoyWarning
-                                                res.timeframe == DesktopRentalAgreementTimeframe.FUTURE -> LoyInfo
-                                                else -> LoyGreenDark
-                                            },
-                                        )
-                                    }
-                                    Text(
-                                        text = formatCents(res.totalCents, sym),
-                                        style = TabularMoneyStyle.merge(MaterialTheme.typography.bodySmall),
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (res.isRefunded) LoyError else LoyTextPrimary,
-                                        textAlign = TextAlign.End,
                                         modifier = Modifier.width(86.dp),
                                     )
+                                    Column(modifier = Modifier.weight(1.4f)) {
+                                        Text(
+                                            text = item.name,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.SemiBold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Text(
+                                            text = "${formatCents(item.priceCents, sym)}/day",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = LoyTextMuted,
+                                        )
+                                    }
+                                    Box(modifier = Modifier.width(110.dp), contentAlignment = Alignment.CenterEnd) {
+                                        DesktopBadge(
+                                            text = if (item.stock <= 0.0) "0 / ${formatQty(min)}" else "${formatQty(item.stock)} / ${formatQty(min)}",
+                                            bgColor = if (item.stock <= 0.0) LoyErrorLight else LoyWarningLight,
+                                            fgColor = if (item.stock <= 0.0) LoyError else LoyWarning,
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
                 }
+
+                if (useTwoColPanels) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.fillMaxWidth()) {
+                        recentOrdersCard(Modifier.weight(1f))
+                        fleetWatchlistCard(Modifier.weight(1f))
+                    }
+                } else {
+                    recentOrdersCard(Modifier.fillMaxWidth())
+                    fleetWatchlistCard(Modifier.fillMaxWidth())
+                }
+
+                // Analytics Row
+                val revenueChartCard: @Composable (Modifier) -> Unit = { cardModifier ->
+                    DesktopSectionCard(
+                        title = "Monthly Rental Income (6 Months)",
+                        subtitle = "Completed bookings revenue by month",
+                        modifier = cardModifier,
+                    ) {
+                        val maxCents = monthlyPoints.maxOfOrNull { it.second }?.coerceAtLeast(1L) ?: 1L
+                        Row(
+                            modifier = Modifier.fillMaxWidth().height(150.dp).padding(top = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.Bottom,
+                        ) {
+                            monthlyPoints.forEach { (label, cents, count) ->
+                                val frac = (cents.toFloat() / maxCents.toFloat()).coerceIn(0.06f, 1f)
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Bottom,
+                                ) {
+                                    Text(
+                                        text = if (cents > 0L) formatCents(cents, sym) else "$count",
+                                        style = TabularMoneyStyle.merge(MaterialTheme.typography.labelSmall),
+                                        color = LoyTextSecondary,
+                                        maxLines = 1,
+                                    )
+                                    Spacer(Modifier.height(5.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth(0.58f)
+                                            .height((98f * frac).dp)
+                                            .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
+                                            .background(if (cents > 0L) LoyGreen else LoyBorder),
+                                    )
+                                    Spacer(Modifier.height(6.dp))
+                                    Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                val utilizationChartCard: @Composable (Modifier) -> Unit = { cardModifier ->
+                    DesktopSectionCard(
+                        title = "Fleet Utilization by Category",
+                        subtitle = "Active checked-out ratio",
+                        headerAction = {
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                DesktopSecondaryButton("Schedule", onClick = onOpenSchedule)
+                                DesktopSecondaryButton("Event Kits", onClick = onOpenEventKits)
+                            }
+                        },
+                        modifier = cardModifier,
+                    ) {
+                        utilizationRows.take(5).forEach { (catId, cat, metrics) ->
+                            val (pct, ratioText) = metrics
+                            val accent = categoryTileAccent(catId)
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text(cat, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+                                    Text(
+                                        "${pct.roundToInt()}% ($ratioText out)",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = accent,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                }
+                                LinearProgressIndicator(
+                                    progress = { (pct / 100.0).toFloat().coerceIn(0f, 1f) },
+                                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(999.dp)),
+                                    color = if (pct >= 80.0) LoyWarning else accent,
+                                    trackColor = LoySurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (useTwoColPanels) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.fillMaxWidth()) {
+                        revenueChartCard(Modifier.weight(1f))
+                        utilizationChartCard(Modifier.weight(1f))
+                    }
+                } else {
+                    revenueChartCard(Modifier.fillMaxWidth())
+                    utilizationChartCard(Modifier.fillMaxWidth())
+                }
             }
         }
 
-        // Two-Column Operations Tables: Return Alerts / Recent Orders & Fleet Watchlist
-        Row(horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.fillMaxWidth()) {
-            DesktopSectionCard(
-                title = if (dueWithin24h.isNotEmpty()) "Returns Due Within 24h & Recent Orders" else "Recent Rental Orders",
-                subtitle = if (dueWithin24h.isNotEmpty()) "${dueWithin24h.size} active return alert(s)" else "Latest completed dispatches",
-                headerAction = {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        if (dueWithin24h.isNotEmpty()) {
-                            DesktopSecondaryButton(
-                                text = "Due <24h (${dueWithin24h.size})",
-                                icon = Icons.Outlined.NotificationsActive,
-                                contentColor = LoyWarning,
-                                onClick = onOpenDueRentals,
+        // Docked Right Master-Detail Inspector Pane
+        if (showInspector) {
+            VerticalDivider(color = LoyBorder)
+            Column(
+                modifier = Modifier
+                    .width(400.dp)
+                    .fillMaxHeight()
+                    .background(LoySurface),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(LoySurfaceHover)
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = if (inspectedOrder != null) "Rental Agreement Detail" else "Held Quote Detail",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        DesktopSecondaryButton(
+                            text = if (inspectedOrder != null) "All Rentals" else "Rent Desk",
+                            icon = Icons.AutoMirrored.Outlined.OpenInNew,
+                            onClick = { if (inspectedOrder != null) onOpenRentals() else onOpenRentDesk() },
+                        )
+                        IconButton(
+                            onClick = {
+                                inspectedOrderId = null
+                                inspectedQuoteResult = null
+                            },
+                            modifier = Modifier.size(30.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Close,
+                                contentDescription = "Close inspector",
+                                tint = LoyTextSecondary,
+                                modifier = Modifier.size(18.dp),
                             )
                         }
-                        DesktopSecondaryButton(text = "View All", onClick = onOpenRentals)
                     }
-                },
-                contentPadding = PaddingValues(0.dp),
-                modifier = Modifier.weight(1f),
-            ) {
-                if (snapshot.orders.isEmpty()) {
-                    DesktopEmptyState(
-                        icon = Icons.Outlined.Inventory2,
-                        title = "No Rental Orders Yet",
-                        subtitle = "Create a booking from Rent Desk to populate dispatch tracking.",
+                }
+                HorizontalDivider(color = LoyBorder)
+
+                if (inspectedOrder != null) {
+                    DesktopRentalOrderInspectorContent(
+                        order = inspectedOrder,
+                        repository = repository,
+                        snapshot = snapshot,
+                        nowMs = now,
+                        isDue24h = inspectedOrder.id in due24hIds && !inspectedOrder.isOverdue(now),
+                        onReportDamage = onReportDamage,
+                        onToast = onToast,
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
                     )
                 } else {
-                    DesktopTableHeaderRow {
-                        DesktopTableHeaderText("Order", Modifier.width(66.dp))
-                        DesktopTableHeaderText("Client / Event", Modifier.weight(1.3f))
-                        DesktopTableHeaderText("Return", Modifier.weight(1f))
-                        DesktopTableHeaderText("Total", Modifier.width(82.dp))
-                    }
-                    val featuredOrders = remember(dueWithin24h, snapshot.orders) {
-                        val dueOrders = dueWithin24h.map { it.order }
-                        val dueIds = dueOrders.map { it.id }.toSet()
-                        (dueOrders + snapshot.orders.filterNot { it.id in dueIds }).take(6)
-                    }
-                    featuredOrders.forEach { o ->
-                        val dueInfo = dueWithin24h.firstOrNull { it.order.id == o.id }
-                        DesktopTableRow(onClick = onOpenRentals) {
-                            Text(
-                                text = "#${o.number.toString().padStart(4, '0')}",
-                                style = MaterialTheme.typography.labelLarge.copy(fontFamily = FontFamily.Monospace),
-                                color = LoyGreenDark,
-                                modifier = Modifier.width(66.dp),
-                            )
-                            Column(modifier = Modifier.weight(1.3f)) {
+                    inspectedQuoteResult?.let { quote ->
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .verticalScroll(rememberScrollState())
+                                .padding(18.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
                                 Text(
-                                    text = o.customerName?.ifBlank { "Walk-in" } ?: "Walk-in",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
+                                    text = quote.agreementNumberLabel,
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold,
                                 )
-                                Text(
-                                    text = o.eventName.ifBlank { formatDateTime(o.createdAt) },
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = LoyTextMuted,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
+                                DesktopBadge("${quote.timeframe.label} · ${quote.statusBadge}", LoyInfoLight, LoyInfo)
                             }
-                            Box(modifier = Modifier.weight(1f)) {
-                                when {
-                                    dueInfo != null -> DesktopBadge(
-                                        text = DesktopRentalReturnReminderCalculator.formatRemainingLabel(dueInfo.msUntilDue),
-                                        bgColor = if (dueInfo.isOverdue) LoyErrorLight else LoyWarningLight,
-                                        fgColor = if (dueInfo.isOverdue) LoyError else LoyWarning,
+                            Text(
+                                text = formatCents(quote.totalCents, sym),
+                                style = TabularMoneyStyle.merge(MaterialTheme.typography.headlineSmall),
+                                color = LoyGreenDark,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            DesktopSectionCard(title = "Quote Details") {
+                                Text("Client: ${quote.customerName}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+                                if (quote.eventName.isNotBlank()) {
+                                    Text(
+                                        text = "Event: ${quote.eventName}${if (quote.eventVenue.isNotBlank()) " @ ${quote.eventVenue}" else ""}",
+                                        style = MaterialTheme.typography.bodySmall,
                                     )
-                                    o.isReturned -> DesktopBadge("Returned", LoyGreenLight, LoyGreenDark)
-                                    !o.isCompleted -> DesktopBadge("Refunded", LoyErrorLight, LoyError)
-                                    else -> Text(
-                                        text = "Due ${formatShortDate(o.rentalEndMs)}",
-                                        style = MaterialTheme.typography.labelSmall,
+                                }
+                                Text(
+                                    text = "Window: ${formatShortDate(quote.rentalStartMs)} → ${formatShortDate(quote.rentalEndMs)} (${quote.rentalDays} days)",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                                if (quote.equipmentIds.isNotEmpty()) {
+                                    Text(
+                                        text = "Equipment IDs: ${quote.equipmentIds.joinToString(", ")}",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
                                         color = LoyTextSecondary,
                                     )
                                 }
                             }
-                            Text(
-                                text = formatCents(o.totalCents, sym),
-                                style = TabularMoneyStyle.merge(MaterialTheme.typography.bodySmall),
-                                fontWeight = FontWeight.Bold,
-                                color = if (o.isCompleted) LoyTextPrimary else LoyError,
-                                textAlign = TextAlign.End,
-                                modifier = Modifier.width(82.dp),
-                            )
-                        }
-                    }
-                }
-            }
-
-            DesktopSectionCard(
-                title = "Fleet Availability Watchlist",
-                subtitle = if (lowOrOutItems.isEmpty()) "All ${snapshot.items.size} items healthy" else "${lowOrOutItems.size} item(s) below safety level",
-                headerAction = {
-                    DesktopSecondaryButton(text = "Manage Fleet", onClick = onOpenEquipment)
-                },
-                contentPadding = PaddingValues(0.dp),
-                modifier = Modifier.weight(1f),
-            ) {
-                if (lowOrOutItems.isEmpty()) {
-                    Text(
-                        text = "All ${snapshot.items.size} equipment items are above safety stock levels.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = LoyGreenDark,
-                        modifier = Modifier.padding(16.dp),
-                    )
-                } else {
-                    DesktopTableHeaderRow {
-                        DesktopTableHeaderText("SKU", Modifier.width(86.dp))
-                        DesktopTableHeaderText("Equipment", Modifier.weight(1.4f))
-                        DesktopTableHeaderText("Depot / Min", Modifier.width(110.dp))
-                    }
-                    lowOrOutItems.take(6).forEach { item ->
-                        val min = item.effectiveSafetyThreshold(lowThreshold)
-                        DesktopTableRow(onClick = onOpenEquipment) {
-                            Text(
-                                text = item.sku.ifBlank { item.id },
-                                style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
-                                color = LoyTextSecondary,
-                                maxLines = 1,
-                                modifier = Modifier.width(86.dp),
-                            )
-                            Column(modifier = Modifier.weight(1.4f)) {
-                                Text(
-                                    text = item.name,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                Text(
-                                    text = "${formatCents(item.priceCents, sym)}/day",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = LoyTextMuted,
-                                )
+                            if (quote.equipmentSummaries.isNotEmpty()) {
+                                DesktopSectionCard(title = "Quoted Gear (${quote.equipmentSummaries.size})") {
+                                    quote.equipmentSummaries.forEach { summary ->
+                                        Text("• $summary", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
                             }
-                            Box(modifier = Modifier.width(110.dp), contentAlignment = Alignment.CenterEnd) {
-                                DesktopBadge(
-                                    text = if (item.stock <= 0.0) "0 / ${formatQty(min)}" else "${formatQty(item.stock)} / ${formatQty(min)}",
-                                    bgColor = if (item.stock <= 0.0) LoyErrorLight else LoyWarningLight,
-                                    fgColor = if (item.stock <= 0.0) LoyError else LoyWarning,
-                                )
-                            }
+                            DesktopPrimaryButton(
+                                text = "Resume Quote in Rent Desk",
+                                onClick = onOpenRentDesk,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
                         }
                     }
                 }
             }
         }
-
-        // Analytics Row
-        Row(horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.fillMaxWidth()) {
-            DesktopSectionCard(
-                title = "Monthly Rental Income (6 Months)",
-                subtitle = "Completed bookings revenue by month",
-                modifier = Modifier.weight(1f),
-            ) {
-                val maxCents = monthlyPoints.maxOfOrNull { it.second }?.coerceAtLeast(1L) ?: 1L
-                Row(
-                    modifier = Modifier.fillMaxWidth().height(150.dp).padding(top = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.Bottom,
-                ) {
-                    monthlyPoints.forEach { (label, cents, count) ->
-                        val frac = (cents.toFloat() / maxCents.toFloat()).coerceIn(0.06f, 1f)
-                        Column(
-                            modifier = Modifier.weight(1f),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Bottom,
-                        ) {
-                            Text(
-                                text = if (cents > 0L) formatCents(cents, sym) else "$count",
-                                style = TabularMoneyStyle.merge(MaterialTheme.typography.labelSmall),
-                                color = LoyTextSecondary,
-                                maxLines = 1,
-                            )
-                            Spacer(Modifier.height(5.dp))
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth(0.58f)
-                                    .height((98f * frac).dp)
-                                    .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
-                                    .background(if (cents > 0L) LoyGreen else LoyBorder),
-                            )
-                            Spacer(Modifier.height(6.dp))
-                            Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                }
-            }
-
-            DesktopSectionCard(
-                title = "Fleet Utilization by Category",
-                subtitle = "Active checked-out ratio",
-                headerAction = {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        DesktopSecondaryButton("Schedule", onClick = onOpenSchedule)
-                        DesktopSecondaryButton("Event Kits", onClick = onOpenEventKits)
-                    }
-                },
-                modifier = Modifier.weight(1f),
-            ) {
-                utilizationRows.take(5).forEach { (catId, cat, metrics) ->
-                    val (pct, ratioText) = metrics
-                    val accent = categoryTileAccent(catId)
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(cat, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
-                            Text(
-                                "${pct.roundToInt()}% ($ratioText out)",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = accent,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                        }
-                        LinearProgressIndicator(
-                            progress = { (pct / 100.0).toFloat().coerceIn(0f, 1f) },
-                            modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(999.dp)),
-                            color = if (pct >= 80.0) LoyWarning else accent,
-                            trackColor = LoySurfaceVariant,
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    selectedSearchResult?.let { res ->
-        AlertDialog(
-            onDismissRequest = { selectedSearchResult = null },
-            title = { Text("${res.agreementNumberLabel} · ${res.customerName}") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Status: ${res.timeframe.label} (${res.statusBadge})", fontWeight = FontWeight.SemiBold)
-                    if (res.eventName.isNotBlank()) Text("Event: ${res.eventName}${if (res.eventVenue.isNotBlank()) " @ ${res.eventVenue}" else ""}")
-                    Text("Dates: ${formatShortDate(res.rentalStartMs)} → ${formatShortDate(res.rentalEndMs)} (${res.rentalDays} days)")
-                    Text("Total: ${formatCents(res.totalCents, sym)}", fontWeight = FontWeight.Bold)
-                    if (res.equipmentIds.isNotEmpty()) {
-                        Text("Equipment IDs: ${res.equipmentIds.joinToString(", ")}", style = MaterialTheme.typography.bodySmall)
-                    }
-                    if (res.equipmentSummaries.isNotEmpty()) {
-                        HorizontalDivider(color = LoyBorder)
-                        res.equipmentSummaries.forEach { line ->
-                            Text("• $line", style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                Button(onClick = {
-                    selectedSearchResult = null
-                    if (res.isHeldQuote) onOpenRentDesk() else onOpenRentals()
-                }) {
-                    Text(if (res.isHeldQuote) "Open Rent Desk" else "Open in Rentals")
-                }
-            },
-            dismissButton = { TextButton(onClick = { selectedSearchResult = null }) { Text("Close") } },
-        )
     }
 }
 

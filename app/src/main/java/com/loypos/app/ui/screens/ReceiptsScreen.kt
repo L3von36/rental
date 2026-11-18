@@ -557,7 +557,7 @@ fun ReceiptDetailScreen(
 }
 
 @Composable
-private fun ReceiptDetailContent(
+internal fun ReceiptDetailContent(
     receiptWithLines: ReceiptWithLines,
     data: LoyPosDataState,
     onShareText: () -> Unit,
@@ -772,5 +772,152 @@ private fun ReceiptDetailContent(
                 Text("Refund Rental")
             }
         }
+    }
+}
+
+@Composable
+internal fun RentalDetailInspectorPane(
+    viewModel: LoyPosViewModel,
+    receiptWithLines: ReceiptWithLines?,
+    data: LoyPosDataState,
+    onReportDamage: (String, String?) -> Unit = { _, _ -> },
+    onOpenFullScreen: ((String) -> Unit)? = null,
+    emptyTitle: String = "Select a rental",
+    emptySubtitle: String = "Choose a rental record on the left to inspect equipment lines, contract, or return status.",
+    modifier: Modifier = Modifier,
+) {
+    val metrics = LocalLoyMetrics.current
+    var showPdfPreview by remember { mutableStateOf(false) }
+    var showAgreementDialog by remember { mutableStateOf(false) }
+    var showReturnDialog by remember { mutableStateOf(false) }
+    var showRefundDialog by remember { mutableStateOf(false) }
+
+    Box(modifier = modifier.fillMaxHeight().background(LoyBackground)) {
+        if (receiptWithLines == null) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                EmptyState(
+                    icon = Icons.Outlined.ReceiptLong,
+                    title = emptyTitle,
+                    subtitle = emptySubtitle,
+                )
+            }
+        } else {
+            val r = receiptWithLines.receipt
+            Column(modifier = Modifier.fillMaxSize()) {
+                Surface(color = LoySurface) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = metrics.screenPadding, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Rental #${r.number.toString().padStart(4, '0')}",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Text(
+                                text = r.eventName.ifBlank { r.customerName ?: "Walk-in client" },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = LoyTextSecondary,
+                            )
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(
+                                onClick = { showAgreementDialog = true },
+                                modifier = Modifier
+                                    .accessibleTouchTarget(metrics.minTouchTarget)
+                                    .testTag("inspector_agreement_btn"),
+                            ) {
+                                Icon(Icons.Outlined.Description, contentDescription = "Rental Agreement", tint = LoyGreen, modifier = Modifier.size(20.dp))
+                            }
+                            IconButton(
+                                onClick = { showPdfPreview = true },
+                                modifier = Modifier
+                                    .accessibleTouchTarget(metrics.minTouchTarget)
+                                    .testTag("inspector_pdf_btn"),
+                            ) {
+                                Icon(Icons.Outlined.PictureAsPdf, contentDescription = "Preview Receipt PDF", tint = LoyGreen, modifier = Modifier.size(20.dp))
+                            }
+                            if (onOpenFullScreen != null) {
+                                androidx.compose.material3.TextButton(
+                                    onClick = { onOpenFullScreen(r.id) },
+                                    modifier = Modifier.heightIn(min = metrics.minTouchTarget),
+                                ) {
+                                    Text("Full view")
+                                }
+                            }
+                        }
+                    }
+                }
+                HorizontalDivider(color = LoyBorder)
+                ReceiptDetailContent(
+                    receiptWithLines = receiptWithLines,
+                    data = data,
+                    onShareText = { viewModel.shareReceiptText(receiptWithLines) },
+                    onPreviewPdf = { showPdfPreview = true },
+                    onOpenAgreement = { showAgreementDialog = true },
+                    onReportDamage = {
+                        onReportDamage(r.id, receiptWithLines.lines.firstOrNull()?.itemId)
+                    },
+                    onMarkReturned = { showReturnDialog = true },
+                    onRequestRefund = { showRefundDialog = true },
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(metrics.screenPadding),
+                )
+            }
+        }
+    }
+
+    if (showPdfPreview && receiptWithLines != null) {
+        ReceiptPdfPreviewSheet(
+            viewModel = viewModel,
+            receiptWithLines = receiptWithLines,
+            onDismiss = { showPdfPreview = false },
+        )
+    }
+
+    if (showAgreementDialog && receiptWithLines != null) {
+        PopulatedAgreementDialog(
+            viewModel = viewModel,
+            receiptWithLines = receiptWithLines,
+            data = data,
+            onDismiss = { showAgreementDialog = false },
+        )
+    }
+
+    if (showReturnDialog && receiptWithLines != null) {
+        val activeReceipt = receiptWithLines.receipt
+        ConfirmDialog(
+            title = "Mark rental #${activeReceipt.number.toString().padStart(4, '0')} returned?",
+            message = "All tracked equipment on this rental will be returned to available fleet inventory.",
+            confirmLabel = "Mark Returned",
+            destructive = false,
+            onConfirm = {
+                viewModel.markRentalReturned(activeReceipt.id)
+                showReturnDialog = false
+            },
+            onDismiss = { showReturnDialog = false },
+        )
+    }
+
+    if (showRefundDialog && receiptWithLines != null) {
+        val activeReceipt = receiptWithLines.receipt
+        ConfirmDialog(
+            title = "Refund rental #${activeReceipt.number.toString().padStart(4, '0')}?",
+            message = "This marks the rental as refunded and restores equipment availability if not already returned.",
+            confirmLabel = "Refund",
+            destructive = true,
+            onConfirm = {
+                viewModel.refundReceipt(activeReceipt.id)
+                showRefundDialog = false
+            },
+            onDismiss = { showRefundDialog = false },
+        )
     }
 }

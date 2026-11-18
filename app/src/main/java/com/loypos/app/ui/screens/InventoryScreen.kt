@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -116,10 +117,12 @@ import com.loypos.app.ui.components.ItemThumbnail
 import com.loypos.app.ui.components.StockDotBadge
 import com.loypos.app.ui.components.TopSyncIconButton
 import com.loypos.app.ui.components.categoryIconFor
+import com.loypos.app.ui.theme.LocalLoyWindowSize
 import com.loypos.app.ui.theme.LoyBackground
 import com.loypos.app.ui.theme.LoyBorder
 import com.loypos.app.ui.theme.LoyError
 import com.loypos.app.ui.theme.LoyGreen
+import com.loypos.app.ui.theme.LoyGreenLight
 import com.loypos.app.ui.theme.LoySurface
 import com.loypos.app.ui.theme.LoyTextSecondary
 import com.loypos.app.ui.theme.LoyWarning
@@ -187,6 +190,17 @@ fun InventoryScreen(
             val matchesLow = !lowStockOnly || product.isBelowSafetyThreshold(threshold)
             matchesCat && matchesLow
         }
+    }
+    val windowSize = LocalLoyWindowSize.current
+    val activeSplitProduct = remember(editingItem, isCreatingItem, filteredProducts) {
+        if (isCreatingItem) editingItem
+        else editingItem?.let { cur -> filteredProducts.firstOrNull { it.id == cur.id } ?: cur }
+            ?: filteredProducts.firstOrNull()
+    }
+    val activeSplitCategory = remember(editingCategory, isCreatingCategory, data.categories) {
+        if (isCreatingCategory) editingCategory
+        else editingCategory?.let { cur -> data.categories.firstOrNull { it.id == cur.id } ?: cur }
+            ?: data.categories.firstOrNull()
     }
 
     Scaffold(
@@ -401,130 +415,264 @@ fun InventoryScreen(
                         )
                     }
 
-                    if (filteredProducts.isEmpty()) {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            EmptyState(
-                                icon = Icons.Outlined.Inventory2,
-                                title = if (search.isBlank() && !lowStockOnly) "No equipment found" else "No matching equipment",
-                                subtitle = when {
-                                    lowStockOnly -> "No equipment items are below their safety threshold."
-                                    search.isBlank() -> "Tap + to add event tools to your fleet."
-                                    else -> "No equipment matches \"$search\" by name or SKU."
-                                },
-                            )
-                        }
-                    } else {
-                        LazyColumn(
-                            contentPadding = PaddingValues(12.dp, 8.dp, 12.dp, 76.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            items(filteredProducts, key = { it.id }) { product ->
-                                val catName = data.categories.firstOrNull { it.id == product.categoryId }?.name
-                                    ?: "Uncategorized"
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = LoySurface,
-                                    border = BorderStroke(1.dp, LoyBorder),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .clickable {
-                                            isCreatingItem = false
-                                            editingItem = product
-                                        }
-                                        .testTag("inventory_product_${product.id}"),
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(10.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
+                    val productListPane: @Composable (Modifier) -> Unit = { paneMod ->
+                        if (filteredProducts.isEmpty()) {
+                            Box(paneMod.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                EmptyState(
+                                    icon = Icons.Outlined.Inventory2,
+                                    title = if (search.isBlank() && !lowStockOnly) "No equipment found" else "No matching equipment",
+                                    subtitle = when {
+                                        lowStockOnly -> "No equipment items are below their safety threshold."
+                                        search.isBlank() -> "Tap + to add event tools to your fleet."
+                                        else -> "No equipment matches \"$search\" by name or SKU."
+                                    },
+                                )
+                            }
+                        } else {
+                            LazyColumn(
+                                modifier = paneMod.fillMaxSize(),
+                                contentPadding = PaddingValues(12.dp, 8.dp, 12.dp, 76.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                items(filteredProducts, key = { it.id }) { product ->
+                                    val catName = data.categories.firstOrNull { it.id == product.categoryId }?.name
+                                        ?: "Uncategorized"
+                                    val isSelected = windowSize.useSplitPane && !isCreatingItem && activeSplitProduct?.id == product.id
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = if (isSelected) LoyGreenLight.copy(alpha = 0.25f) else LoySurface,
+                                        border = BorderStroke(if (isSelected) 1.5.dp else 1.dp, if (isSelected) LoyGreen else LoyBorder),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .clickable {
+                                                isCreatingItem = false
+                                                editingItem = product
+                                            }
+                                            .testTag("inventory_product_${product.id}"),
                                     ) {
-                                        ItemThumbnail(item = product, size = 36.dp)
-                                        Spacer(Modifier.width(10.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
+                                        Row(
+                                            modifier = Modifier.padding(10.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            ItemThumbnail(item = product, size = 36.dp)
+                                            Spacer(Modifier.width(10.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    product.name,
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                )
+                                                Text(
+                                                    "$catName${if (product.sku.isNotEmpty()) " · SKU ${product.sku}" else ""}",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = LoyTextSecondary,
+                                                )
+                                                StockDotBadge(item = product, threshold = threshold)
+                                            }
                                             Text(
-                                                product.name,
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                fontWeight = FontWeight.SemiBold,
+                                                "${formatCents(product.priceCents, sym)}/d",
+                                                style = TabularMoneyStyle.merge(MaterialTheme.typography.titleSmall),
+                                                fontWeight = FontWeight.Bold,
                                             )
-                                            Text(
-                                                "$catName${if (product.sku.isNotEmpty()) " · SKU ${product.sku}" else ""}",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = LoyTextSecondary,
-                                            )
-                                            StockDotBadge(item = product, threshold = threshold)
                                         }
-                                        Text(
-                                            "${formatCents(product.priceCents, sym)}/d",
-                                            style = TabularMoneyStyle.merge(MaterialTheme.typography.titleSmall),
-                                            fontWeight = FontWeight.Bold,
-                                        )
                                     }
                                 }
                             }
                         }
                     }
+
+                    if (windowSize.useSplitPane) {
+                        Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                            productListPane(Modifier.weight(0.48f).fillMaxHeight())
+                            Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(LoyBorder))
+                            Box(modifier = Modifier.weight(0.52f).fillMaxHeight().background(LoySurface)) {
+                                val targetProduct = activeSplitProduct
+                                if (targetProduct == null) {
+                                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        EmptyState(
+                                            icon = Icons.Outlined.Inventory2,
+                                            title = "Select equipment",
+                                            subtitle = "Click any tool on the left to edit daily rates, stock, and QR asset tags.",
+                                        )
+                                    }
+                                } else {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .verticalScroll(rememberScrollState())
+                                            .padding(16.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        ProductEditorFormContent(
+                                            product = targetProduct,
+                                            isNew = isCreatingItem,
+                                            data = data,
+                                            onOpenQrUnits = {
+                                                editingItem = null
+                                                isCreatingItem = false
+                                                onNavigateToQrTracking(targetProduct.id)
+                                            },
+                                            onSave = { updated, pickedUri, removePhoto ->
+                                                viewModel.saveItem(updated, pickedUri, removePhoto)
+                                                isCreatingItem = false
+                                                editingItem = updated
+                                            },
+                                            onDelete = {
+                                                viewModel.deleteItem(targetProduct.id)
+                                                editingItem = null
+                                                isCreatingItem = false
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        productListPane(Modifier.weight(1f).fillMaxWidth())
+                    }
                 }
 
                 1 -> {
-                    if (data.categories.isEmpty()) {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            EmptyState(
-                                icon = Icons.Outlined.Category,
-                                title = "No categories",
-                                subtitle = "Tap + to create an equipment category.",
-                            )
-                        }
-                    } else {
-                        LazyColumn(
-                            contentPadding = PaddingValues(12.dp, 10.dp, 12.dp, 76.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            items(data.categories, key = { it.id }) { cat ->
-                                val count = data.items.count { it.categoryId == cat.id }
-                                val tint = tileColorFor(cat.id)
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = LoySurface,
-                                    border = BorderStroke(1.dp, LoyBorder),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .clickable {
-                                            isCreatingCategory = false
-                                            editingCategory = cat
-                                        },
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(10.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
+                    val categoryListPane: @Composable (Modifier) -> Unit = { paneMod ->
+                        if (data.categories.isEmpty()) {
+                            Box(paneMod.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                EmptyState(
+                                    icon = Icons.Outlined.Category,
+                                    title = "No categories",
+                                    subtitle = "Tap + to create an equipment category.",
+                                )
+                            }
+                        } else {
+                            LazyColumn(
+                                modifier = paneMod.fillMaxSize(),
+                                contentPadding = PaddingValues(12.dp, 10.dp, 12.dp, 76.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                items(data.categories, key = { it.id }) { cat ->
+                                    val count = data.items.count { it.categoryId == cat.id }
+                                    val tint = tileColorFor(cat.id)
+                                    val isSelected = windowSize.useSplitPane && !isCreatingCategory && activeSplitCategory?.id == cat.id
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = if (isSelected) LoyGreenLight.copy(alpha = 0.25f) else LoySurface,
+                                        border = BorderStroke(if (isSelected) 1.5.dp else 1.dp, if (isSelected) LoyGreen else LoyBorder),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .clickable {
+                                                isCreatingCategory = false
+                                                editingCategory = cat
+                                            },
                                     ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(34.dp)
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .background(tint.copy(alpha = 0.14f)),
-                                            contentAlignment = Alignment.Center,
+                                        Row(
+                                            modifier = Modifier.padding(10.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
                                         ) {
-                                            Icon(
-                                                categoryIconFor(cat.id),
-                                                contentDescription = null,
-                                                tint = tint,
-                                                modifier = Modifier.size(18.dp),
-                                            )
-                                        }
-                                        Spacer(Modifier.width(10.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                cat.name,
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                fontWeight = FontWeight.SemiBold,
-                                            )
-                                            Text("$count tools", style = MaterialTheme.typography.bodySmall, color = LoyTextSecondary)
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(34.dp)
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(tint.copy(alpha = 0.14f)),
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                Icon(
+                                                    categoryIconFor(cat.id),
+                                                    contentDescription = null,
+                                                    tint = tint,
+                                                    modifier = Modifier.size(18.dp),
+                                                )
+                                            }
+                                            Spacer(Modifier.width(10.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    cat.name,
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                )
+                                                Text("$count tools", style = MaterialTheme.typography.bodySmall, color = LoyTextSecondary)
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
+                    }
+
+                    if (windowSize.useSplitPane) {
+                        Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                            categoryListPane(Modifier.weight(0.48f).fillMaxHeight())
+                            Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(LoyBorder))
+                            Box(modifier = Modifier.weight(0.52f).fillMaxHeight().background(LoySurface).padding(16.dp)) {
+                                val targetCat = activeSplitCategory
+                                if (targetCat == null) {
+                                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        EmptyState(
+                                            icon = Icons.Outlined.Category,
+                                            title = "Select a category",
+                                            subtitle = "Choose a category on the left or tap + to add one.",
+                                        )
+                                    }
+                                } else {
+                                    var catName by remember(targetCat.id, isCreatingCategory) { mutableStateOf(targetCat.name) }
+                                    val toolCount = data.items.count { it.categoryId == targetCat.id }
+                                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            Text(
+                                                if (isCreatingCategory) "New Category" else "Edit Category",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold,
+                                            )
+                                            if (!isCreatingCategory) {
+                                                IconButton(
+                                                    onClick = {
+                                                        viewModel.deleteCategory(targetCat.id)
+                                                        editingCategory = null
+                                                    },
+                                                    modifier = Modifier.size(44.dp),
+                                                ) {
+                                                    Icon(Icons.Outlined.DeleteOutline, contentDescription = "Delete category", tint = LoyError)
+                                                }
+                                            }
+                                        }
+                                        OutlinedTextField(
+                                            value = catName,
+                                            onValueChange = { catName = it },
+                                            label = { Text("Category name") },
+                                            singleLine = true,
+                                            modifier = Modifier.fillMaxWidth(),
+                                        )
+                                        if (!isCreatingCategory) {
+                                            Text(
+                                                text = "$toolCount equipment items assigned to this category",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = LoyTextSecondary,
+                                            )
+                                        }
+                                        Button(
+                                            onClick = {
+                                                val clean = catName.trim()
+                                                if (clean.isNotEmpty()) {
+                                                    viewModel.saveCategory(targetCat.id, clean, targetCat.position)
+                                                    isCreatingCategory = false
+                                                    editingCategory = targetCat.copy(name = clean)
+                                                }
+                                            },
+                                            enabled = catName.trim().isNotEmpty(),
+                                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                                        ) {
+                                            Text("Save Category")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        categoryListPane(Modifier.weight(1f).fillMaxWidth())
                     }
                 }
 
@@ -557,41 +705,43 @@ fun InventoryScreen(
         }
     }
 
-    editingItem?.let { item ->
-        ProductEditorBottomSheet(
-            product = item,
-            isNew = isCreatingItem,
-            data = data,
-            onOpenQrUnits = {
-                editingItem = null
-                onNavigateToQrTracking(item.id)
-            },
-            onSave = { updated, pickedUri, removePhoto ->
-                viewModel.saveItem(updated, pickedUri, removePhoto)
-                editingItem = null
-            },
-            onDelete = {
-                viewModel.deleteItem(item.id)
-                editingItem = null
-            },
-            onDismiss = { editingItem = null },
-        )
-    }
+    if (!windowSize.useSplitPane) {
+        editingItem?.let { item ->
+            ProductEditorBottomSheet(
+                product = item,
+                isNew = isCreatingItem,
+                data = data,
+                onOpenQrUnits = {
+                    editingItem = null
+                    onNavigateToQrTracking(item.id)
+                },
+                onSave = { updated, pickedUri, removePhoto ->
+                    viewModel.saveItem(updated, pickedUri, removePhoto)
+                    editingItem = null
+                },
+                onDelete = {
+                    viewModel.deleteItem(item.id)
+                    editingItem = null
+                },
+                onDismiss = { editingItem = null },
+            )
+        }
 
-    editingCategory?.let { cat ->
-        CategoryEditorDialog(
-            category = cat,
-            isNew = isCreatingCategory,
-            onSave = { name ->
-                viewModel.saveCategory(cat.id, name, cat.position)
-                editingCategory = null
-            },
-            onDelete = {
-                viewModel.deleteCategory(cat.id)
-                editingCategory = null
-            },
-            onDismiss = { editingCategory = null },
-        )
+        editingCategory?.let { cat ->
+            CategoryEditorDialog(
+                category = cat,
+                isNew = isCreatingCategory,
+                onSave = { name ->
+                    viewModel.saveCategory(cat.id, name, cat.position)
+                    editingCategory = null
+                },
+                onDelete = {
+                    viewModel.deleteCategory(cat.id)
+                    editingCategory = null
+                },
+                onDismiss = { editingCategory = null },
+            )
+        }
     }
 
     if (showCsvSheet) {
@@ -641,45 +791,6 @@ private fun ProductEditorBottomSheet(
     onDelete: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var name by remember { mutableStateOf(product.name) }
-    var categoryId by remember { mutableStateOf(product.categoryId) }
-    var catExpanded by remember { mutableStateOf(false) }
-    var priceText by remember {
-        mutableStateOf(
-            if (product.priceCents == 0L) "" else (product.priceCents / 100.0).let {
-                if (product.priceCents % 100L == 0L) (product.priceCents / 100L).toString() else "%.2f".format(it)
-            }
-        )
-    }
-    var costText by remember {
-        mutableStateOf(
-            if (product.costCents == 0L) "" else (product.costCents / 100.0).let {
-                if (product.costCents % 100L == 0L) (product.costCents / 100L).toString() else "%.2f".format(it)
-            }
-        )
-    }
-    var sku by remember { mutableStateOf(product.sku) }
-    var barcode by remember { mutableStateOf(product.barcode) }
-    var trackStock by remember { mutableStateOf(product.trackStock) }
-    var stockText by remember { mutableStateOf(formatQty(product.stock)) }
-    var safetyThresholdText by remember {
-        mutableStateOf(product.safetyThreshold?.let { formatQty(it) } ?: "")
-    }
-    var selectedBranches by remember {
-        mutableStateOf(
-            if (product.branchIds.isEmpty()) emptySet() else product.branchIds.split(",").filter { it.isNotEmpty() }.toSet()
-        )
-    }
-    var pickedPhotoUri by remember { mutableStateOf<Uri?>(null) }
-    var removeExistingPhoto by remember { mutableStateOf(false) }
-
-    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) {
-            pickedPhotoUri = uri
-            removeExistingPhoto = false
-        }
-    }
-
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
@@ -692,18 +803,80 @@ private fun ProductEditorBottomSheet(
                 .padding(horizontal = 16.dp, vertical = 6.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(if (isNew) "New Equipment" else "Edit Equipment", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                if (!isNew) {
-                    IconButton(onClick = onDelete, modifier = Modifier.size(40.dp)) {
-                        Icon(Icons.Outlined.DeleteOutline, contentDescription = "Delete equipment", tint = LoyError, modifier = Modifier.size(20.dp))
-                    }
-                }
+            ProductEditorFormContent(
+                product = product,
+                isNew = isNew,
+                data = data,
+                onOpenQrUnits = onOpenQrUnits,
+                onSave = onSave,
+                onDelete = onDelete,
+            )
+            Spacer(Modifier.height(6.dp))
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun ProductEditorFormContent(
+    product: ProductEntity,
+    isNew: Boolean,
+    data: LoyPosDataState,
+    onOpenQrUnits: () -> Unit,
+    onSave: (ProductEntity, Uri?, Boolean) -> Unit,
+    onDelete: () -> Unit,
+) {
+    var name by remember(product.id, isNew) { mutableStateOf(product.name) }
+    var categoryId by remember(product.id, isNew) { mutableStateOf(product.categoryId) }
+    var catExpanded by remember(product.id, isNew) { mutableStateOf(false) }
+    var priceText by remember(product.id, isNew) {
+        mutableStateOf(
+            if (product.priceCents == 0L) "" else (product.priceCents / 100.0).let {
+                if (product.priceCents % 100L == 0L) (product.priceCents / 100L).toString() else "%.2f".format(it)
             }
+        )
+    }
+    var costText by remember(product.id, isNew) {
+        mutableStateOf(
+            if (product.costCents == 0L) "" else (product.costCents / 100.0).let {
+                if (product.costCents % 100L == 0L) (product.costCents / 100L).toString() else "%.2f".format(it)
+            }
+        )
+    }
+    var sku by remember(product.id, isNew) { mutableStateOf(product.sku) }
+    var barcode by remember(product.id, isNew) { mutableStateOf(product.barcode) }
+    var trackStock by remember(product.id, isNew) { mutableStateOf(product.trackStock) }
+    var stockText by remember(product.id, isNew) { mutableStateOf(formatQty(product.stock)) }
+    var safetyThresholdText by remember(product.id, isNew) {
+        mutableStateOf(product.safetyThreshold?.let { formatQty(it) } ?: "")
+    }
+    var selectedBranches by remember(product.id, isNew) {
+        mutableStateOf(
+            if (product.branchIds.isEmpty()) emptySet() else product.branchIds.split(",").filter { it.isNotEmpty() }.toSet()
+        )
+    }
+    var pickedPhotoUri by remember(product.id, isNew) { mutableStateOf<Uri?>(null) }
+    var removeExistingPhoto by remember(product.id, isNew) { mutableStateOf(false) }
+
+    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) {
+            pickedPhotoUri = uri
+            removeExistingPhoto = false
+        }
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(if (isNew) "New Equipment" else "Edit Equipment", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        if (!isNew) {
+            IconButton(onClick = onDelete, modifier = Modifier.size(44.dp)) {
+                Icon(Icons.Outlined.DeleteOutline, contentDescription = "Delete equipment", tint = LoyError, modifier = Modifier.size(20.dp))
+            }
+        }
+    }
 
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Box(
@@ -959,13 +1132,10 @@ private fun ProductEditorBottomSheet(
                     onSave(updated, pickedPhotoUri, removeExistingPhoto)
                 },
                 enabled = name.trim().isNotEmpty(),
-                modifier = Modifier.fillMaxWidth().height(42.dp).testTag("item_save_button"),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("item_save_button"),
             ) {
                 Text("Save equipment")
             }
-            Spacer(Modifier.height(6.dp))
-        }
-    }
 }
 
 @Composable

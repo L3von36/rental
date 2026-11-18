@@ -21,11 +21,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Add
@@ -56,6 +61,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.NavigationRailItemDefaults
@@ -64,6 +72,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -77,13 +86,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -100,8 +112,6 @@ import com.loypos.app.data.local.BackOfficeUserEntity
 import com.loypos.app.ui.LoyPosDataState
 import com.loypos.app.ui.LoyPosViewModel
 import com.loypos.app.ui.UiSessionState
-import com.loypos.app.ui.components.CompactBottomNavBar
-import com.loypos.app.ui.components.CompactNavEntry
 import com.loypos.app.ui.components.ConfirmDialog
 import com.loypos.app.ui.components.GroupCard
 import com.loypos.app.ui.components.InventoryCsvSheet
@@ -134,6 +144,7 @@ private data class BackOfficeNavItem(
     val label: String,
     val icon: ImageVector,
     val tag: String,
+    val matchClasses: List<KClass<*>> = listOf(routeClass),
 )
 
 @Composable
@@ -165,6 +176,20 @@ fun BackOfficeMainScreen(
         )
     }
 
+    val sidebarDestinations = remember {
+        topDestinations + listOf(
+            BackOfficeNavItem(BackOfficeCustomersRoute, BackOfficeCustomersRoute::class, "Clients", Icons.Outlined.PeopleOutline, "bo_nav_clients"),
+            BackOfficeNavItem(
+                route = BackOfficeReceiptsRoute,
+                routeClass = BackOfficeReceiptsRoute::class,
+                label = "Rentals",
+                icon = Icons.Outlined.ReceiptLong,
+                tag = "bo_nav_receipts",
+                matchClasses = listOf(BackOfficeReceiptsRoute::class, BackOfficeReceiptDetailRoute::class),
+            ),
+        )
+    }
+
     val showTopChrome = topDestinations.any { entry ->
         currentDestination?.hierarchy?.any { it.hasRoute(entry.routeClass) } == true
     }
@@ -193,72 +218,108 @@ fun BackOfficeMainScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
-                if (showTopChrome && !useRail) {
-                    CompactBottomNavBar(
-                        entries = topDestinations.map { entry ->
-                            val selected = currentDestination?.hierarchy?.any { it.hasRoute(entry.routeClass) } == true
-                            CompactNavEntry(
-                                label = entry.label,
-                                icon = entry.icon,
-                                selected = selected,
-                                tag = entry.tag,
-                                onClick = { navigateToTab(entry.route) },
-                            )
-                        },
-                        selectedColor = BackOfficeTeal,
-                        indicatorColor = BackOfficeTealLight,
-                    )
-                }
-            },
-        ) { padding ->
-            Row(modifier = Modifier.fillMaxSize().padding(padding)) {
-                if (showTopChrome && useRail) {
-                    NavigationRail(
-                        containerColor = LoySurface,
-                        modifier = Modifier.fillMaxHeight(),
-                    ) {
-                        topDestinations.forEach { entry ->
-                            val selected = currentDestination?.hierarchy?.any { it.hasRoute(entry.routeClass) } == true
-                            NavigationRailItem(
-                                selected = selected,
-                                onClick = { navigateToTab(entry.route) },
-                                icon = { Icon(entry.icon, contentDescription = entry.label) },
-                                label = { Text(entry.label) },
-                                colors = NavigationRailItemDefaults.colors(
-                                    selectedIconColor = BackOfficeTeal,
-                                    selectedTextColor = BackOfficeTeal,
-                                    indicatorColor = BackOfficeTealLight,
-                                ),
-                                modifier = Modifier.testTag(entry.tag),
-                            )
-                        }
+            if (showTopChrome && !useRail) {
+                NavigationBar(
+                    containerColor = LoySurface,
+                    tonalElevation = 2.dp,
+                    modifier = Modifier.navigationBarsPadding(),
+                ) {
+                    topDestinations.forEach { entry ->
+                        val selected = currentDestination?.hierarchy?.any { it.hasRoute(entry.routeClass) } == true
+                        NavigationBarItem(
+                            selected = selected,
+                            onClick = { navigateToTab(entry.route) },
+                            icon = { Icon(entry.icon, contentDescription = entry.label) },
+                            label = { Text(entry.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = BackOfficeTeal,
+                                selectedTextColor = BackOfficeTeal,
+                                indicatorColor = BackOfficeTealLight,
+                                unselectedIconColor = LoyTextSecondary,
+                                unselectedTextColor = LoyTextSecondary,
+                            ),
+                            modifier = Modifier.testTag(entry.tag),
+                        )
                     }
                 }
-
-                Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                    NavHost(
-                        navController = navController,
-                        startDestination = BackOfficeOverviewRoute,
-                        modifier = Modifier.fillMaxSize(),
+            }
+        },
+    ) { padding ->
+        Row(modifier = Modifier.fillMaxSize().padding(padding)) {
+            if (useRail) {
+                if (windowSize.isDesktop) {
+                    BackOfficePersistentSidebar(
+                        storeName = data.settings.storeName,
+                        destinations = sidebarDestinations,
+                        isSelected = { entry ->
+                            currentDestination?.hierarchy?.any { dest ->
+                                entry.matchClasses.any { dest.hasRoute(it) }
+                            } == true
+                        },
+                        onSelect = navigateToTab,
+                        onSwitchToPos = { viewModel.switchToPos() },
+                    )
+                } else {
+                    NavigationRail(
+                        containerColor = LoySurface,
+                        modifier = Modifier.fillMaxHeight().testTag("bo_persistent_rail"),
                     ) {
-                        composable<BackOfficeOverviewRoute> {
-                            BackOfficeDashboardScreen(
-                                viewModel = viewModel,
-                                session = session,
-                                data = data,
-                                onNavigateToCatalog = { navigateToTab(BackOfficeInventoryRoute) },
-                                onNavigateToStock = { navigateToTab(BackOfficeStockRoute) },
-                                onNavigateToReports = { navigateToTab(BackOfficeReportsRoute) },
-                                onNavigateToCustomers = { navController.navigate(BackOfficeCustomersRoute) },
-                                onNavigateToReceipts = { navController.navigate(BackOfficeReceiptsRoute) },
-                                onNavigateToAdmin = { navigateToTab(BackOfficeAdminRoute) },
-                                onSwitchToPos = { viewModel.switchToPos() },
-                                onLockBackOffice = { viewModel.signOutBackOffice() },
-                                onNavigateToReceiptDetail = { receiptId ->
-                                    navController.navigate(BackOfficeReceiptDetailRoute(receiptId))
-                                },
-                            )
+                        Column(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .statusBarsPadding()
+                                .verticalScroll(rememberScrollState())
+                                .padding(vertical = 8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            sidebarDestinations.forEach { entry ->
+                                val selected = currentDestination?.hierarchy?.any { dest ->
+                                    entry.matchClasses.any { dest.hasRoute(it) }
+                                } == true
+                                NavigationRailItem(
+                                    selected = selected,
+                                    onClick = { navigateToTab(entry.route) },
+                                    icon = { Icon(entry.icon, contentDescription = entry.label) },
+                                    label = { Text(entry.label, maxLines = 1) },
+                                    colors = NavigationRailItemDefaults.colors(
+                                        selectedIconColor = BackOfficeTeal,
+                                        selectedTextColor = BackOfficeTeal,
+                                        indicatorColor = BackOfficeTealLight,
+                                    ),
+                                    modifier = Modifier.testTag(entry.tag),
+                                )
+                            }
                         }
+                    }
+                    Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(LoyBorder))
+                }
+            }
+
+            Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                NavHost(
+                    navController = navController,
+                    startDestination = BackOfficeOverviewRoute,
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    composable<BackOfficeOverviewRoute> {
+                        BackOfficeDashboardScreen(
+                            viewModel = viewModel,
+                            session = session,
+                            data = data,
+                            onNavigateToCatalog = { navigateToTab(BackOfficeInventoryRoute) },
+                            onNavigateToStock = { navigateToTab(BackOfficeStockRoute) },
+                            onNavigateToReports = { navigateToTab(BackOfficeReportsRoute) },
+                            onNavigateToCustomers = { navigateToTab(BackOfficeCustomersRoute) },
+                            onNavigateToReceipts = { navigateToTab(BackOfficeReceiptsRoute) },
+                            onNavigateToAdmin = { navigateToTab(BackOfficeAdminRoute) },
+                            onSwitchToPos = { viewModel.switchToPos() },
+                            onLockBackOffice = { viewModel.signOutBackOffice() },
+                            onNavigateToReceiptDetail = { receiptId ->
+                                navController.navigate(BackOfficeReceiptDetailRoute(receiptId))
+                            },
+                        )
+                    }
 
                         composable<BackOfficeInventoryRoute> {
                             InventoryScreen(
@@ -823,4 +884,167 @@ private fun AddBackOfficeAdminDialog(
             }
         },
     )
+}
+
+@Composable
+private fun BackOfficePersistentSidebar(
+    storeName: String,
+    destinations: List<BackOfficeNavItem>,
+    isSelected: (BackOfficeNavItem) -> Boolean,
+    onSelect: (Any) -> Unit,
+    onSwitchToPos: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .width(228.dp)
+            .fillMaxHeight()
+            .background(LoySurface)
+            .testTag("bo_persistent_sidebar"),
+    ) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight()
+                .statusBarsPadding()
+                .navigationBarsPadding(),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(BackOfficeNavy)
+                    .padding(horizontal = 14.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(BackOfficeTeal),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.AdminPanelSettings,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Back Office",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            maxLines = 1,
+                        )
+                        Text(
+                            text = storeName.ifBlank { "LoyRent" },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White.copy(alpha = 0.78f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 10.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                Text(
+                    text = "MANAGEMENT",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = LoyTextSecondary,
+                    letterSpacing = 0.8.sp,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                )
+                destinations.forEach { entry ->
+                    val selected = isSelected(entry)
+                    Surface(
+                        color = if (selected) BackOfficeTealLight else Color.Transparent,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { onSelect(entry.route) }
+                            .testTag(entry.tag),
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .width(3.dp)
+                                    .height(18.dp)
+                                    .clip(RoundedCornerShape(2.dp))
+                                    .background(if (selected) BackOfficeTeal else Color.Transparent),
+                            )
+                            Icon(
+                                imageVector = entry.icon,
+                                contentDescription = entry.label,
+                                tint = if (selected) BackOfficeTeal else LoyTextSecondary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Text(
+                                text = entry.label,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                                color = if (selected) BackOfficeTeal else MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+            }
+
+            HorizontalDivider(color = LoyBorder)
+            Surface(
+                color = BackOfficeTealLight.copy(alpha = 0.6f),
+                shape = RoundedCornerShape(9.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(10.dp)
+                    .heightIn(min = 48.dp)
+                    .clip(RoundedCornerShape(9.dp))
+                    .clickable(onClick = onSwitchToPos)
+                    .testTag("bo_sidebar_switch_pos"),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.PointOfSale,
+                        contentDescription = "Switch to POS Desk",
+                        tint = BackOfficeTeal,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Text(
+                        text = "Switch to POS Desk",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = BackOfficeTeal,
+                    )
+                }
+            }
+        }
+        Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(LoyBorder))
+    }
 }

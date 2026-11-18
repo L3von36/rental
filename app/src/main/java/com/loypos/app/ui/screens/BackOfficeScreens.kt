@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -115,6 +116,7 @@ import com.loypos.app.ui.components.PillBadge
 import com.loypos.app.ui.components.SectionHeader
 import com.loypos.app.ui.components.StatBlock
 import com.loypos.app.ui.components.StockDotBadge
+import com.loypos.app.ui.theme.LocalLoyWindowSize
 import com.loypos.app.ui.theme.LoyBackground
 import com.loypos.app.ui.theme.LoyBorder
 import com.loypos.app.ui.theme.LoyError
@@ -179,6 +181,11 @@ fun StockScreen(
             }.thenBy { it.stock - it.effectiveSafetyThreshold(threshold) }.thenBy { it.name })
     }
     val itemNameById = remember(data.items) { data.items.associate { it.id to it.name } }
+    val windowSize = LocalLoyWindowSize.current
+    val activeSplitStock = remember(selectedItem, trackedItems) {
+        selectedItem?.let { cur -> trackedItems.firstOrNull { it.id == cur.id } ?: cur }
+            ?: trackedItems.firstOrNull()
+    }
 
     Scaffold(
         topBar = {
@@ -279,155 +286,195 @@ fun StockScreen(
             }
             HorizontalDivider(color = LoyBorder)
 
-            LazyColumn(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                contentPadding = PaddingValues(12.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                // WorkManager Stock Monitor Summary Banner
-                item {
-                    GroupCard(modifier = Modifier.testTag("stock_workmanager_banner")) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(34.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (data.settings.lowStockAlertsEnabled) LoyGreenLight else LoySurfaceVariant),
-                                contentAlignment = Alignment.Center,
+            val stockListPane: @Composable (Modifier) -> Unit = { paneMod ->
+                LazyColumn(
+                    modifier = paneMod.fillMaxSize(),
+                    contentPadding = PaddingValues(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    // WorkManager Stock Monitor Summary Banner
+                    item {
+                        GroupCard(modifier = Modifier.testTag("stock_workmanager_banner")) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.NotificationsActive,
-                                    contentDescription = "Stock alert monitor",
-                                    tint = if (data.settings.lowStockAlertsEnabled) LoyGreen else LoyTextSecondary,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            }
-                            Column(modifier = Modifier.weight(1f)) {
-                                val workerLabel = if (data.settings.lowStockAlertsEnabled) {
-                                    "${session?.lowStockWorkerStatus ?: "Active"} · Every ${data.settings.lowStockIntervalMinutes}m"
-                                } else {
-                                    "Background monitor off"
+                                Box(
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (data.settings.lowStockAlertsEnabled) LoyGreenLight else LoySurfaceVariant),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.NotificationsActive,
+                                        contentDescription = "Stock alert monitor",
+                                        tint = if (data.settings.lowStockAlertsEnabled) LoyGreen else LoyTextSecondary,
+                                        modifier = Modifier.size(18.dp),
+                                    )
                                 }
-                                Text(
-                                    text = "Monitor (< ${formatQty(threshold)}): $workerLabel",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                )
-                                Text(
-                                    text = if (data.settings.lowStockLastCheckAt > 0L) {
-                                        "Last scan: ${formatDateTime(data.settings.lowStockLastCheckAt)} · ${data.settings.lowStockLastCount} flagged"
+                                Column(modifier = Modifier.weight(1f)) {
+                                    val workerLabel = if (data.settings.lowStockAlertsEnabled) {
+                                        "${session?.lowStockWorkerStatus ?: "Active"} · Every ${data.settings.lowStockIntervalMinutes}m"
                                     } else {
-                                        "${attentionItems.size} items currently below threshold"
-                                    },
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = LoyTextSecondary,
-                                )
-                            }
-                            OutlinedButton(
-                                onClick = { viewModel.runLowStockCheckNow() },
-                                modifier = Modifier.height(36.dp).testTag("stock_run_check_now"),
-                                contentPadding = PaddingValues(horizontal = 10.dp),
-                            ) {
-                                Text("Scan", style = MaterialTheme.typography.labelMedium)
+                                        "Background monitor off"
+                                    }
+                                    Text(
+                                        text = "Monitor (< ${formatQty(threshold)}): $workerLabel",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                    Text(
+                                        text = if (data.settings.lowStockLastCheckAt > 0L) {
+                                            "Last scan: ${formatDateTime(data.settings.lowStockLastCheckAt)} · ${data.settings.lowStockLastCount} flagged"
+                                        } else {
+                                            "${attentionItems.size} items currently below threshold"
+                                        },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = LoyTextSecondary,
+                                    )
+                                }
+                                OutlinedButton(
+                                    onClick = { viewModel.runLowStockCheckNow() },
+                                    modifier = Modifier.height(36.dp).testTag("stock_run_check_now"),
+                                    contentPadding = PaddingValues(horizontal = 10.dp),
+                                ) {
+                                    Text("Scan", style = MaterialTheme.typography.labelMedium)
+                                }
                             }
                         }
                     }
-                }
 
-                items(trackedItems, key = { it.id }) { item ->
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = LoySurface,
-                        border = BorderStroke(1.dp, LoyBorder),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable { selectedItem = item },
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            ItemThumbnail(item = item, size = 36.dp)
-                            Spacer(Modifier.width(10.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    item.name,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                )
-                                StockDotBadge(item = item, threshold = threshold)
-                            }
-                            val isBelow = item.isBelowSafetyThreshold(threshold)
-                            PillBadge(
-                                text = formatQty(item.stock),
-                                backgroundColor = when {
-                                    item.stock <= 0.0 -> Color(0xFFFFEBEE)
-                                    isBelow -> Color(0xFFFFF3E0)
-                                    else -> LoyGreenLight
-                                },
-                                textColor = when {
-                                    item.stock <= 0.0 -> LoyError
-                                    isBelow -> LoyWarning
-                                    else -> LoyGreen
-                                },
-                            )
-                        }
-                    }
-                }
-
-                if (data.movements.isNotEmpty()) {
-                    item { SectionHeader("Recent Stock Movements") }
-                    items(data.movements.take(25), key = { it.id }) { mv ->
+                    items(trackedItems, key = { it.id }) { item ->
+                        val isSelected = windowSize.useSplitPane && activeSplitStock?.id == item.id
                         Surface(
                             shape = RoundedCornerShape(10.dp),
-                            color = LoySurface,
-                            border = BorderStroke(1.dp, LoyBorder),
-                            modifier = Modifier.fillMaxWidth(),
+                            color = if (isSelected) LoyGreenLight.copy(alpha = 0.25f) else LoySurface,
+                            border = BorderStroke(if (isSelected) 1.5.dp else 1.dp, if (isSelected) LoyGreen else LoyBorder),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable { selectedItem = item },
                         ) {
                             Row(
                                 modifier = Modifier.padding(10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
+                                ItemThumbnail(item = item, size = 36.dp)
+                                Spacer(Modifier.width(10.dp))
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(itemNameById[mv.itemId] ?: "Item", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                                     Text(
-                                        "${mv.type.replaceFirstChar { it.uppercase() }} · ${formatDateTime(mv.createdAt)}${if (mv.note.isNotEmpty()) " · ${mv.note}" else ""}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = LoyTextSecondary,
+                                        item.name,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                    StockDotBadge(item = item, threshold = threshold)
+                                }
+                                val isBelow = item.isBelowSafetyThreshold(threshold)
+                                PillBadge(
+                                    text = formatQty(item.stock),
+                                    backgroundColor = when {
+                                        item.stock <= 0.0 -> Color(0xFFFFEBEE)
+                                        isBelow -> Color(0xFFFFF3E0)
+                                        else -> LoyGreenLight
+                                    },
+                                    textColor = when {
+                                        item.stock <= 0.0 -> LoyError
+                                        isBelow -> LoyWarning
+                                        else -> LoyGreen
+                                    },
+                                )
+                            }
+                        }
+                    }
+
+                    if (data.movements.isNotEmpty()) {
+                        item { SectionHeader("Recent Stock Movements") }
+                        items(data.movements.take(25), key = { it.id }) { mv ->
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = LoySurface,
+                                border = BorderStroke(1.dp, LoyBorder),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(itemNameById[mv.itemId] ?: "Item", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                                        Text(
+                                            "${mv.type.replaceFirstChar { it.uppercase() }} · ${formatDateTime(mv.createdAt)}${if (mv.note.isNotEmpty()) " · ${mv.note}" else ""}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = LoyTextSecondary,
+                                        )
+                                    }
+                                    Text(
+                                        text = "${if (mv.qty > 0) "+" else ""}${formatQty(mv.qty)}",
+                                        style = TabularMoneyStyle.merge(MaterialTheme.typography.bodyMedium),
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (mv.qty >= 0) LoyGreen else LoyError,
                                     )
                                 }
-                                Text(
-                                    text = "${if (mv.qty > 0) "+" else ""}${formatQty(mv.qty)}",
-                                    style = TabularMoneyStyle.merge(MaterialTheme.typography.bodyMedium),
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (mv.qty >= 0) LoyGreen else LoyError,
-                                )
                             }
                         }
                     }
                 }
             }
+
+            if (windowSize.useSplitPane) {
+                Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    stockListPane(Modifier.weight(0.54f).fillMaxHeight())
+                    Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(LoyBorder))
+                    Box(modifier = Modifier.weight(0.46f).fillMaxHeight().background(LoySurface)) {
+                        val targetItem = activeSplitStock
+                        if (targetItem == null) {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                EmptyState(
+                                    icon = Icons.Outlined.Inventory2,
+                                    title = "Select equipment SKU",
+                                    subtitle = "Click any tracked tool on the left to adjust stock levels or inspect history.",
+                                )
+                            }
+                        } else {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .verticalScroll(rememberScrollState())
+                                    .padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                StockAdjustFormContent(
+                                    item = targetItem,
+                                    onReceive = { delta, note -> viewModel.receiveStock(targetItem.id, delta, note) },
+                                    onSetExact = { count, note -> viewModel.setStockCount(targetItem.id, count, note) },
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                stockListPane(Modifier.weight(1f).fillMaxWidth())
+            }
         }
     }
 
-    selectedItem?.let { item ->
-        StockAdjustBottomSheet(
-            item = item,
-            onReceive = { delta, note ->
-                viewModel.receiveStock(item.id, delta, note)
-                selectedItem = null
-            },
-            onSetExact = { count, note ->
-                viewModel.setStockCount(item.id, count, note)
-                selectedItem = null
-            },
-            onDismiss = { selectedItem = null },
-        )
+    if (!windowSize.useSplitPane) {
+        selectedItem?.let { item ->
+            StockAdjustBottomSheet(
+                item = item,
+                onReceive = { delta, note ->
+                    viewModel.receiveStock(item.id, delta, note)
+                    selectedItem = null
+                },
+                onSetExact = { count, note ->
+                    viewModel.setStockCount(item.id, count, note)
+                    selectedItem = null
+                },
+                onDismiss = { selectedItem = null },
+            )
+        }
     }
 
     if (showBatchRestockDialog) {
@@ -512,10 +559,6 @@ private fun StockAdjustBottomSheet(
     onSetExact: (Double, String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var mode by remember { mutableStateOf("receive") }
-    var qtyText by remember { mutableStateOf("") }
-    var note by remember { mutableStateOf("") }
-
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
@@ -527,77 +570,94 @@ private fun StockAdjustBottomSheet(
                 .padding(horizontal = 16.dp, vertical = 6.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text(item.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text("Current stock: ${formatQty(item.stock)}", style = MaterialTheme.typography.bodySmall, color = LoyTextSecondary)
-
-            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                SegmentedButton(
-                    selected = mode == "receive",
-                    onClick = { mode = "receive"; qtyText = "" },
-                    shape = SegmentedButtonDefaults.itemShape(0, 2),
-                ) { Text("Receive (+)", style = MaterialTheme.typography.labelLarge) }
-                SegmentedButton(
-                    selected = mode == "set",
-                    onClick = { mode = "set"; qtyText = formatQty(item.stock) },
-                    shape = SegmentedButtonDefaults.itemShape(1, 2),
-                ) { Text("Set count", style = MaterialTheme.typography.labelLarge) }
-            }
-
-            if (mode == "receive") {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf(5, 10, 25, 50).forEach { preset ->
-                        FilterChip(
-                            selected = qtyText == preset.toString(),
-                            onClick = { qtyText = preset.toString() },
-                            label = { Text("+$preset", style = MaterialTheme.typography.labelMedium) },
-                            modifier = Modifier.weight(1f).height(30.dp),
-                        )
-                    }
-                }
-            }
-
-            Surface(color = LoySurfaceVariant, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = if (mode == "receive") "+${qtyText.ifEmpty { "0" }}" else qtyText.ifEmpty { "0" },
-                    style = TabularMoneyStyle.merge(MaterialTheme.typography.titleLarge),
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(10.dp),
-                )
-            }
-
-            OutlinedTextField(
-                value = note,
-                onValueChange = { note = it },
-                label = { Text("Note (optional)") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
+            StockAdjustFormContent(
+                item = item,
+                onReceive = onReceive,
+                onSetExact = onSetExact,
             )
-
-            CurrencyNumPad(
-                onKey = { d ->
-                    if (d == "." && qtyText.contains(".")) return@CurrencyNumPad
-                    qtyText += d
-                },
-                onBackspace = { if (qtyText.isNotEmpty()) qtyText = qtyText.dropLast(1) },
-                onClear = { qtyText = "" },
-                allowDecimal = true,
-            )
-
-            Button(
-                onClick = {
-                    val v = parseQty(qtyText) ?: 0.0
-                    if (mode == "receive") {
-                        if (v > 0.0) onReceive(v, note)
-                    } else {
-                        onSetExact(v, note)
-                    }
-                },
-                modifier = Modifier.fillMaxWidth().height(42.dp),
-            ) {
-                Text(if (mode == "receive") "Add to stock" else "Save stock count")
-            }
             Spacer(Modifier.height(6.dp))
         }
+    }
+}
+
+@Composable
+private fun StockAdjustFormContent(
+    item: ItemEntity,
+    onReceive: (Double, String) -> Unit,
+    onSetExact: (Double, String) -> Unit,
+) {
+    var mode by remember(item.id) { mutableStateOf("receive") }
+    var qtyText by remember(item.id) { mutableStateOf("") }
+    var note by remember(item.id) { mutableStateOf("") }
+
+    Text(item.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+    Text("Current available stock: ${formatQty(item.stock)}", style = MaterialTheme.typography.bodySmall, color = LoyTextSecondary)
+
+    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+        SegmentedButton(
+            selected = mode == "receive",
+            onClick = { mode = "receive"; qtyText = "" },
+            shape = SegmentedButtonDefaults.itemShape(0, 2),
+        ) { Text("Receive (+)", style = MaterialTheme.typography.labelLarge) }
+        SegmentedButton(
+            selected = mode == "set",
+            onClick = { mode = "set"; qtyText = formatQty(item.stock) },
+            shape = SegmentedButtonDefaults.itemShape(1, 2),
+        ) { Text("Set count", style = MaterialTheme.typography.labelLarge) }
+    }
+
+    if (mode == "receive") {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf(5, 10, 25, 50).forEach { preset ->
+                FilterChip(
+                    selected = qtyText == preset.toString(),
+                    onClick = { qtyText = preset.toString() },
+                    label = { Text("+$preset", style = MaterialTheme.typography.labelMedium) },
+                    modifier = Modifier.weight(1f).height(30.dp),
+                )
+            }
+        }
+    }
+
+    Surface(color = LoySurfaceVariant, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = if (mode == "receive") "+${qtyText.ifEmpty { "0" }}" else qtyText.ifEmpty { "0" },
+            style = TabularMoneyStyle.merge(MaterialTheme.typography.titleLarge),
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(10.dp),
+        )
+    }
+
+    OutlinedTextField(
+        value = note,
+        onValueChange = { note = it },
+        label = { Text("Note (optional)") },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+    )
+
+    CurrencyNumPad(
+        onKey = { d ->
+            if (d == "." && qtyText.contains(".")) return@CurrencyNumPad
+            qtyText += d
+        },
+        onBackspace = { if (qtyText.isNotEmpty()) qtyText = qtyText.dropLast(1) },
+        onClear = { qtyText = "" },
+        allowDecimal = true,
+    )
+
+    Button(
+        onClick = {
+            val v = parseQty(qtyText) ?: 0.0
+            if (mode == "receive") {
+                if (v > 0.0) onReceive(v, note)
+            } else {
+                onSetExact(v, note)
+            }
+        },
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+    ) {
+        Text(if (mode == "receive") "Add to stock" else "Save stock count")
     }
 }
 
@@ -617,6 +677,12 @@ fun CustomersScreen(
         if (q.isEmpty()) data.customers else data.customers.filter {
             it.name.lowercase().contains(q) || it.phone.lowercase().contains(q) || it.email.lowercase().contains(q)
         }
+    }
+    val windowSize = LocalLoyWindowSize.current
+    val activeSplitCustomer = remember(editingCustomer, isNew, filtered) {
+        if (isNew) editingCustomer
+        else editingCustomer?.let { cur -> filtered.firstOrNull { it.id == cur.id } ?: cur }
+            ?: filtered.firstOrNull()
     }
 
     Scaffold(
@@ -667,65 +733,166 @@ fun CustomersScreen(
             }
             HorizontalDivider(color = LoyBorder)
 
-            if (filtered.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    EmptyState(
-                        icon = Icons.Outlined.PeopleOutline,
-                        title = "No clients yet",
-                        subtitle = "Tap + to add an event client or organizer.",
-                    )
-                }
-            } else {
-                LazyColumn(
-                    contentPadding = PaddingValues(12.dp, 8.dp, 12.dp, 76.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    items(filtered, key = { it.id }) { cust ->
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = LoySurface,
-                            border = BorderStroke(1.dp, LoyBorder),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .clickable {
-                                    isNew = false
-                                    editingCustomer = cust
-                                },
-                        ) {
-                            Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Outlined.PersonOutline, contentDescription = null, tint = LoyGreen, modifier = Modifier.size(20.dp))
-                                Spacer(Modifier.width(10.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(cust.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                                    val sub = listOf(cust.phone, cust.email).filter { it.isNotEmpty() }.joinToString(" · ")
-                                    if (sub.isNotEmpty()) {
-                                        Text(sub, style = MaterialTheme.typography.bodySmall, color = LoyTextSecondary)
+            val clientListPane: @Composable (Modifier) -> Unit = { paneMod ->
+                if (filtered.isEmpty()) {
+                    Box(paneMod.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        EmptyState(
+                            icon = Icons.Outlined.PeopleOutline,
+                            title = "No clients yet",
+                            subtitle = "Tap + to add an event client or organizer.",
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = paneMod.fillMaxSize(),
+                        contentPadding = PaddingValues(12.dp, 8.dp, 12.dp, 76.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        items(filtered, key = { it.id }) { cust ->
+                            val isSelected = windowSize.useSplitPane && !isNew && activeSplitCustomer?.id == cust.id
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (isSelected) LoyGreenLight.copy(alpha = 0.25f) else LoySurface,
+                                border = BorderStroke(if (isSelected) 1.5.dp else 1.dp, if (isSelected) LoyGreen else LoyBorder),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable {
+                                        isNew = false
+                                        editingCustomer = cust
+                                    },
+                            ) {
+                                Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Outlined.PersonOutline, contentDescription = null, tint = LoyGreen, modifier = Modifier.size(20.dp))
+                                    Spacer(Modifier.width(10.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(cust.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                        val sub = listOf(cust.phone, cust.email).filter { it.isNotEmpty() }.joinToString(" · ")
+                                        if (sub.isNotEmpty()) {
+                                            Text(sub, style = MaterialTheme.typography.bodySmall, color = LoyTextSecondary)
+                                        }
                                     }
+                                    PillBadge("${cust.points} pts")
                                 }
-                                PillBadge("${cust.points} pts")
                             }
                         }
                     }
                 }
             }
+
+            if (windowSize.useSplitPane) {
+                Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    clientListPane(Modifier.weight(0.46f).fillMaxHeight())
+                    Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(LoyBorder))
+                    Box(modifier = Modifier.weight(0.54f).fillMaxHeight().background(LoySurface)) {
+                        val targetCust = activeSplitCustomer
+                        if (targetCust == null) {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                EmptyState(
+                                    icon = Icons.Outlined.PeopleOutline,
+                                    title = "Select a client",
+                                    subtitle = "Click any client profile on the left to view contact details and rental history.",
+                                )
+                            }
+                        } else {
+                            val custOrders = remember(targetCust.id, targetCust.name, data.receipts) {
+                                data.receipts.filter {
+                                    it.receipt.customerId == targetCust.id ||
+                                        (targetCust.name.isNotBlank() && it.receipt.customerName == targetCust.name)
+                                }
+                            }
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .verticalScroll(rememberScrollState())
+                                    .padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                CustomerEditorFormContent(
+                                    customer = targetCust,
+                                    isNew = isNew,
+                                    onSave = { updated ->
+                                        viewModel.saveCustomer(updated)
+                                        isNew = false
+                                        editingCustomer = updated
+                                    },
+                                    onDelete = {
+                                        viewModel.deleteCustomer(targetCust.id)
+                                        editingCustomer = null
+                                        isNew = false
+                                    },
+                                )
+                                if (!isNew) {
+                                    HorizontalDivider(color = LoyBorder)
+                                    SectionHeader("Client Rental History (${custOrders.size})")
+                                    if (custOrders.isEmpty()) {
+                                        Text(
+                                            "No rental orders linked to this client yet.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = LoyTextSecondary,
+                                        )
+                                    } else {
+                                        custOrders.take(10).forEach { order ->
+                                            val r = order.receipt
+                                            Surface(
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = LoyBackground,
+                                                border = BorderStroke(1.dp, LoyBorder),
+                                                modifier = Modifier.fillMaxWidth(),
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(10.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                ) {
+                                                    Column(modifier = Modifier.weight(1f)) {
+                                                        Text(
+                                                            "#${r.number.toString().padStart(4, '0')} · ${r.eventName.ifBlank { "${r.rentalDays}d rental" }}",
+                                                            fontWeight = FontWeight.SemiBold,
+                                                        )
+                                                        Text(
+                                                            formatDateTime(r.createdAt),
+                                                            style = MaterialTheme.typography.bodySmall,
+                                                            color = LoyTextSecondary,
+                                                        )
+                                                    }
+                                                    Text(
+                                                        formatCents(r.totalCents, data.settings.currencySymbol),
+                                                        style = TabularMoneyStyle,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = LoyGreen,
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                clientListPane(Modifier.weight(1f).fillMaxWidth())
+            }
         }
     }
 
-    editingCustomer?.let { cust ->
-        CustomerEditorSheet(
-            customer = cust,
-            isNew = isNew,
-            onSave = {
-                viewModel.saveCustomer(it)
-                editingCustomer = null
-            },
-            onDelete = {
-                viewModel.deleteCustomer(cust.id)
-                editingCustomer = null
-            },
-            onDismiss = { editingCustomer = null },
-        )
+    if (!windowSize.useSplitPane) {
+        editingCustomer?.let { cust ->
+            CustomerEditorSheet(
+                customer = cust,
+                isNew = isNew,
+                onSave = {
+                    viewModel.saveCustomer(it)
+                    editingCustomer = null
+                },
+                onDelete = {
+                    viewModel.deleteCustomer(cust.id)
+                    editingCustomer = null
+                },
+                onDismiss = { editingCustomer = null },
+            )
+        }
     }
 }
 
@@ -738,11 +905,6 @@ private fun CustomerEditorSheet(
     onDelete: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var name by remember { mutableStateOf(customer.name) }
-    var phone by remember { mutableStateOf(customer.phone) }
-    var email by remember { mutableStateOf(customer.email) }
-    var note by remember { mutableStateOf(customer.note) }
-
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
@@ -754,31 +916,51 @@ private fun CustomerEditorSheet(
                 .padding(horizontal = 16.dp, vertical = 6.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text(if (isNew) "New Client" else "Edit Client", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                if (!isNew) {
-                    IconButton(onClick = onDelete, modifier = Modifier.size(40.dp)) {
-                        Icon(Icons.Outlined.DeleteOutline, contentDescription = "Delete client", tint = LoyError, modifier = Modifier.size(20.dp))
-                    }
-                }
-            }
-            OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Client / Organizer *") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = phone, onValueChange = { phone = it }, label = { Text("Phone") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = email, onValueChange = { email = it }, label = { Text("Email") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = note, onValueChange = { note = it }, label = { Text("Venue / Note") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            Button(
-                onClick = {
-                    if (name.trim().isNotEmpty()) {
-                        onSave(customer.copy(name = name.trim(), phone = phone.trim(), email = email.trim(), note = note.trim()))
-                    }
-                },
-                enabled = name.trim().isNotEmpty(),
-                modifier = Modifier.fillMaxWidth().height(42.dp),
-            ) {
-                Text("Save client")
-            }
+            CustomerEditorFormContent(
+                customer = customer,
+                isNew = isNew,
+                onSave = onSave,
+                onDelete = onDelete,
+            )
             Spacer(Modifier.height(6.dp))
         }
+    }
+}
+
+@Composable
+private fun CustomerEditorFormContent(
+    customer: CustomerEntity,
+    isNew: Boolean,
+    onSave: (CustomerEntity) -> Unit,
+    onDelete: () -> Unit,
+) {
+    var name by remember(customer.id, isNew) { mutableStateOf(customer.name) }
+    var phone by remember(customer.id, isNew) { mutableStateOf(customer.phone) }
+    var email by remember(customer.id, isNew) { mutableStateOf(customer.email) }
+    var note by remember(customer.id, isNew) { mutableStateOf(customer.note) }
+
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Text(if (isNew) "New Client" else "Edit Client", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        if (!isNew) {
+            IconButton(onClick = onDelete, modifier = Modifier.size(44.dp)) {
+                Icon(Icons.Outlined.DeleteOutline, contentDescription = "Delete client", tint = LoyError, modifier = Modifier.size(20.dp))
+            }
+        }
+    }
+    OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Client / Organizer *") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+    OutlinedTextField(value = phone, onValueChange = { phone = it }, label = { Text("Phone") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+    OutlinedTextField(value = email, onValueChange = { email = it }, label = { Text("Email") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+    OutlinedTextField(value = note, onValueChange = { note = it }, label = { Text("Venue / Note") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+    Button(
+        onClick = {
+            if (name.trim().isNotEmpty()) {
+                onSave(customer.copy(name = name.trim(), phone = phone.trim(), email = email.trim(), note = note.trim()))
+            }
+        },
+        enabled = name.trim().isNotEmpty(),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+    ) {
+        Text("Save client")
     }
 }
 

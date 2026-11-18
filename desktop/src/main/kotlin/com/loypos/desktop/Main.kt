@@ -440,6 +440,7 @@ private fun DesktopShell(repository: DesktopRepository) {
                 Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                     when (activeTab) {
                         DesktopTab.DASHBOARD -> DesktopDashboardView(
+                            repository = repository,
                             snapshot = snapshot,
                             onOpenRentDesk = { activeTab = DesktopTab.RENT_DESK },
                             onOpenRentals = { activeTab = DesktopTab.RENTALS },
@@ -450,6 +451,11 @@ private fun DesktopShell(repository: DesktopRepository) {
                             onOpenAgreements = { activeTab = DesktopTab.AGREEMENTS },
                             onOpenEventKits = { activeTab = DesktopTab.EVENT_KITS },
                             onOpenDamageLog = { activeTab = DesktopTab.DAMAGE_LOG },
+                            onReportDamage = { order ->
+                                pendingDamageOrder = order
+                                activeTab = DesktopTab.DAMAGE_LOG
+                            },
+                            onToast = ::showToast,
                         )
                         DesktopTab.RENT_DESK -> RentDeskView(
                             repository = repository,

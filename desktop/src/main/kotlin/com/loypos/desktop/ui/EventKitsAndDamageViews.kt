@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -19,9 +20,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -56,6 +54,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -74,6 +73,7 @@ import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.loypos.desktop.core.formatCents
@@ -106,6 +106,7 @@ fun DesktopEventKitsView(
 ) {
     val sym = snapshot.settings.currencySymbol
     var search by remember { mutableStateOf("") }
+    var selectedKitId by remember { mutableStateOf<String?>(snapshot.eventKits.firstOrNull()?.id) }
     var editingKit by remember { mutableStateOf<DesktopEventKit?>(null) }
     var showCreateDialog by remember { mutableStateOf(false) }
 
@@ -122,162 +123,283 @@ fun DesktopEventKitsView(
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().background(LoyBackground)) {
-        Surface(color = LoySurface) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                DesktopSearchInput(
-                    value = search,
-                    onValueChange = { search = it },
-                    placeholder = "Search event kits by package name, category, or included gear...",
-                    modifier = Modifier.weight(1f),
-                )
-                DesktopPrimaryButton(
-                    text = "New Event Kit",
-                    icon = Icons.Outlined.Add,
-                    onClick = { showCreateDialog = true },
-                )
-            }
-        }
-        HorizontalDivider(color = LoyBorder)
+    val activeKit = remember(filteredKits, selectedKitId) {
+        filteredKits.firstOrNull { it.id == selectedKitId } ?: filteredKits.firstOrNull()
+    }
 
-        if (filteredKits.isEmpty()) {
-            DesktopEmptyState(
-                icon = Icons.Outlined.Layers,
-                title = "No Event Kits Match",
-                subtitle = "Create a reusable bundle package to speed up Rent Desk checkouts.",
-                action = {
+    Row(modifier = Modifier.fillMaxSize().background(LoyBackground)) {
+        // Left Master List (42%)
+        Column(modifier = Modifier.weight(0.42f).fillMaxHeight()) {
+            Surface(color = LoySurface) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    DesktopSearchInput(
+                        value = search,
+                        onValueChange = { search = it },
+                        placeholder = "Search packages, categories, or included gear...",
+                        modifier = Modifier.weight(1f),
+                    )
                     DesktopPrimaryButton(
-                        text = "Create Event Kit",
+                        text = "New Kit",
                         icon = Icons.Outlined.Add,
                         onClick = { showCreateDialog = true },
                     )
-                },
-                modifier = Modifier.weight(1f),
-            )
-        } else {
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 460.dp),
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                contentPadding = PaddingValues(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                items(filteredKits, key = { it.id }) { kit ->
-                    val rawDailyTotalCents = kit.items.sumOf { ki ->
-                        val equip = catalogMap[ki.itemId]
-                        if (equip != null) (equip.priceCents * ki.qty).roundToLong() else 0L
+                }
+            }
+            HorizontalDivider(color = LoyBorder)
+
+            if (filteredKits.isEmpty()) {
+                DesktopEmptyState(
+                    icon = Icons.Outlined.Layers,
+                    title = "No Event Kits Match",
+                    subtitle = "Create a reusable bundle package to speed up Rent Desk checkouts.",
+                    action = {
+                        DesktopPrimaryButton(
+                            text = "Create Event Kit",
+                            icon = Icons.Outlined.Add,
+                            onClick = { showCreateDialog = true },
+                        )
+                    },
+                    modifier = Modifier.weight(1f),
+                )
+            } else {
+                DesktopTableHeaderRow {
+                    DesktopTableHeaderText("Package / Event Kit", Modifier.weight(1.5f))
+                    DesktopTableHeaderText("Items", Modifier.width(64.dp))
+                    DesktopTableHeaderText("Rate / Day", Modifier.width(96.dp))
+                }
+                LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth().background(LoySurface)) {
+                    items(filteredKits, key = { it.id }) { kit ->
+                        val rawDailyTotalCents = kit.items.sumOf { ki ->
+                            val equip = catalogMap[ki.itemId]
+                            if (equip != null) (equip.priceCents * ki.qty).roundToLong() else 0L
+                        }
+                        val bundleDailyTotalCents = if (kit.discountPercent > 0.0) {
+                            (rawDailyTotalCents * (1.0 - kit.discountPercent / 100.0)).roundToLong()
+                        } else rawDailyTotalCents
+                        val isSelected = activeKit?.id == kit.id
+
+                        DesktopTableRow(
+                            selected = isSelected,
+                            onClick = { selectedKitId = kit.id },
+                        ) {
+                            Column(modifier = Modifier.weight(1.5f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text(
+                                    text = kit.name,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    DesktopBadge(kit.category, LoyGreenLight, LoyGreenDark)
+                                    if (kit.discountPercent > 0.0) {
+                                        DesktopBadge("${formatQty(kit.discountPercent)}% Off", LoyInfoLight, LoyInfo)
+                                    }
+                                }
+                            }
+                            Text(
+                                text = "${kit.items.size} sku",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = LoyTextSecondary,
+                                modifier = Modifier.width(64.dp),
+                            )
+                            Text(
+                                text = formatCents(bundleDailyTotalCents, sym),
+                                style = TabularMoneyStyle.merge(MaterialTheme.typography.bodyMedium),
+                                fontWeight = FontWeight.Bold,
+                                color = LoyGreenDark,
+                                textAlign = TextAlign.End,
+                                modifier = Modifier.width(96.dp),
+                            )
+                        }
                     }
-                    val bundleDailyTotalCents = if (kit.discountPercent > 0.0) {
-                        (rawDailyTotalCents * (1.0 - kit.discountPercent / 100.0)).roundToLong()
-                    } else rawDailyTotalCents
+                }
+            }
+        }
 
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = LoySurface,
-                        border = BorderStroke(1.dp, LoyBorder),
+        VerticalDivider(color = LoyBorder)
+
+        // Right Detail Inspector Pane (58%)
+        Column(
+            modifier = Modifier
+                .weight(0.58f)
+                .fillMaxHeight()
+                .background(LoySurface),
+        ) {
+            val kit = activeKit
+            if (kit == null) {
+                DesktopEmptyState(
+                    icon = Icons.Outlined.Layers,
+                    title = "Select an Event Kit",
+                    subtitle = "Choose any equipment bundle from the list to inspect pricing, stock readiness, and itemized gear.",
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                val rawDailyTotalCents = kit.items.sumOf { ki ->
+                    val equip = catalogMap[ki.itemId]
+                    if (equip != null) (equip.priceCents * ki.qty).roundToLong() else 0L
+                }
+                val bundleDailyTotalCents = if (kit.discountPercent > 0.0) {
+                    (rawDailyTotalCents * (1.0 - kit.discountPercent / 100.0)).roundToLong()
+                } else rawDailyTotalCents
+                val savingsCents = (rawDailyTotalCents - bundleDailyTotalCents).coerceAtLeast(0L)
+                val shortCount = kit.items.count { ki ->
+                    val eq = catalogMap[ki.itemId]
+                    eq == null || (eq.trackStock && eq.stock < ki.qty)
+                }
+
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.Top,
                     ) {
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            Box(modifier = Modifier.fillMaxWidth().height(3.dp).background(LoyGreen))
-                            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.Top,
-                                ) {
-                                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                                            Text(kit.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                                            DesktopBadge(kit.category, LoyGreenLight, LoyGreenDark)
-                                            if (kit.discountPercent > 0.0) {
-                                                DesktopBadge("${formatQty(kit.discountPercent)}% Off", LoyInfoLight, LoyInfo)
-                                            }
-                                        }
-                                        if (kit.description.isNotBlank()) {
-                                            Text(kit.description, style = MaterialTheme.typography.bodySmall, color = LoyTextSecondary)
-                                        }
-                                    }
-                                    Column(horizontalAlignment = Alignment.End) {
-                                        Text(
-                                            "${formatCents(bundleDailyTotalCents, sym)}/day",
-                                            style = TabularMoneyStyle.merge(MaterialTheme.typography.titleMedium),
-                                            color = LoyGreenDark,
-                                            fontWeight = FontWeight.Bold,
-                                        )
-                                        if (kit.discountPercent > 0.0) {
-                                            Text(
-                                                "Std ${formatCents(rawDailyTotalCents, sym)}/d",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = LoyTextMuted,
-                                            )
-                                        }
-                                    }
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(kit.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                                DesktopBadge(kit.category, LoyGreenLight, LoyGreenDark)
+                                if (kit.discountPercent > 0.0) {
+                                    DesktopBadge("${formatQty(kit.discountPercent)}% Bundle Off", LoyInfoLight, LoyInfo)
                                 }
-
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = LoySurfaceHover,
-                                    border = BorderStroke(1.dp, LoyBorder),
-                                    modifier = Modifier.fillMaxWidth(),
-                                ) {
-                                    Column {
-                                        kit.items.forEachIndexed { idx, line ->
-                                            if (idx > 0) HorizontalDivider(color = LoyBorder.copy(alpha = 0.7f))
-                                            val equip = catalogMap[line.itemId]
-                                            val stockShort = equip != null && equip.trackStock && equip.stock < line.qty
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
-                                                horizontalArrangement = Arrangement.SpaceBetween,
-                                                verticalAlignment = Alignment.CenterVertically,
-                                            ) {
-                                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                                    Text("${formatQty(line.qty)} ×", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = LoyGreenDark)
-                                                    Text(equip?.name ?: line.itemName, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
-                                                }
-                                                if (equip != null) {
-                                                    Text(
-                                                        text = "${formatQty(equip.stock)} avail · ${formatCents(equip.priceCents, sym)}/d",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = if (stockShort) LoyWarning else LoyTextMuted,
-                                                        fontWeight = if (stockShort) FontWeight.SemiBold else FontWeight.Normal,
-                                                    )
-                                                } else {
-                                                    Text("Not in fleet", style = MaterialTheme.typography.labelSmall, color = LoyError)
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    DesktopPrimaryButton(
-                                        text = "Add Kit to Order (1-Click)",
-                                        icon = Icons.Outlined.AddShoppingCart,
-                                        onClick = { onAddKitToOrder(kit) },
-                                    )
-                                    Spacer(Modifier.weight(1f))
-                                    DesktopSecondaryButton(
-                                        text = "Edit",
-                                        icon = Icons.Outlined.Edit,
-                                        onClick = { editingKit = kit },
-                                    )
-                                    DesktopSecondaryButton(
-                                        text = "Delete",
-                                        icon = Icons.Outlined.DeleteOutline,
-                                        contentColor = LoyError,
-                                        onClick = {
-                                            repository.deleteEventKit(kit.id)
-                                            onToast("Deleted ${kit.name}")
-                                        },
-                                    )
-                                }
+                            }
+                            if (kit.description.isNotBlank()) {
+                                Text(kit.description, style = MaterialTheme.typography.bodyMedium, color = LoyTextSecondary)
+                            }
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(
+                                "${formatCents(bundleDailyTotalCents, sym)}/day",
+                                style = TabularMoneyStyle.merge(MaterialTheme.typography.headlineSmall),
+                                color = LoyGreenDark,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            if (savingsCents > 0L) {
+                                Text(
+                                    "Std ${formatCents(rawDailyTotalCents, sym)}/d · Save ${formatCents(savingsCents, sym)}/d",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = LoyInfo,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
                             }
                         }
                     }
+
+                    if (shortCount > 0) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = LoyWarningLight,
+                            border = BorderStroke(1.dp, LoyWarning.copy(alpha = 0.35f)),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Icon(Icons.Outlined.ReportProblem, contentDescription = null, tint = LoyWarning, modifier = Modifier.size(16.dp))
+                                Text(
+                                    text = "$shortCount included equipment item(s) currently below kit quantity in available depot stock.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = LoyWarning,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                            }
+                        }
+                    }
+
+                    DesktopSectionCard(
+                        title = "Bundled Equipment Manifest (${kit.items.size} SKUs)",
+                        subtitle = "Quantities automatically added per booking day",
+                        contentPadding = PaddingValues(0.dp),
+                    ) {
+                        DesktopTableHeaderRow {
+                            DesktopTableHeaderText("Qty", Modifier.width(64.dp))
+                            DesktopTableHeaderText("Equipment", Modifier.weight(1.4f))
+                            DesktopTableHeaderText("Availability", Modifier.weight(1.0f))
+                            DesktopTableHeaderText("Subtotal/d", Modifier.width(92.dp))
+                        }
+                        kit.items.forEach { line ->
+                            val equip = catalogMap[line.itemId]
+                            val stockShort = equip != null && equip.trackStock && equip.stock < line.qty
+                            val lineSub = if (equip != null) (equip.priceCents * line.qty).roundToLong() else 0L
+                            DesktopTableRow {
+                                Text(
+                                    text = "${formatQty(line.qty)} ×",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = LoyGreenDark,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.width(64.dp),
+                                )
+                                Column(modifier = Modifier.weight(1.4f)) {
+                                    Text(
+                                        text = equip?.name ?: line.itemName,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                    Text(
+                                        text = if (equip != null) "${equip.sku.ifBlank { equip.id }} · ${formatCents(equip.priceCents, sym)}/d each" else line.itemId,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = LoyTextMuted,
+                                    )
+                                }
+                                Box(modifier = Modifier.weight(1.0f)) {
+                                    when {
+                                        equip == null -> DesktopBadge("Missing SKU", LoyErrorLight, LoyError)
+                                        !equip.trackStock -> DesktopBadge("Unlimited", LoySurfaceVariant, LoyTextSecondary)
+                                        stockShort -> DesktopBadge("${formatQty(equip.stock)} avail (short)", LoyWarningLight, LoyWarning)
+                                        else -> DesktopBadge("${formatQty(equip.stock)} avail", LoyGreenLight, LoyGreenDark)
+                                    }
+                                }
+                                Text(
+                                    text = formatCents(lineSub, sym),
+                                    style = TabularMoneyStyle.merge(MaterialTheme.typography.bodySmall),
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.End,
+                                    modifier = Modifier.width(92.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = LoyBorder)
+                Row(
+                    modifier = Modifier.fillMaxWidth().background(LoySurfaceHover).padding(14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    DesktopSecondaryButton(
+                        text = "Edit",
+                        icon = Icons.Outlined.Edit,
+                        onClick = { editingKit = kit },
+                    )
+                    DesktopSecondaryButton(
+                        text = "Delete",
+                        icon = Icons.Outlined.DeleteOutline,
+                        contentColor = LoyError,
+                        onClick = {
+                            repository.deleteEventKit(kit.id)
+                            selectedKitId = null
+                            onToast("Deleted ${kit.name}")
+                        },
+                    )
+                    Spacer(Modifier.weight(1f))
+                    DesktopPrimaryButton(
+                        text = "Add Kit to Order (1-Click)",
+                        icon = Icons.Outlined.AddShoppingCart,
+                        onClick = { onAddKitToOrder(kit) },
+                    )
                 }
             }
         }
@@ -289,6 +411,7 @@ fun DesktopEventKitsView(
             snapshot = snapshot,
             onSave = { kit ->
                 repository.saveEventKit(kit)
+                selectedKitId = kit.id
                 onToast("Saved event kit \"${kit.name}\"")
                 showCreateDialog = false
                 editingKit = null
@@ -473,6 +596,7 @@ fun DesktopDamageReportsView(
     val sym = snapshot.settings.currencySymbol
     var search by remember { mutableStateOf("") }
     var statusFilter by remember { mutableStateOf("all") } // all | open | repairing | resolved
+    var selectedReportId by remember { mutableStateOf<String?>(snapshot.damageReports.firstOrNull()?.id) }
     var showCreateDialog by remember { mutableStateOf(false) }
     var editingReport by remember { mutableStateOf<DesktopDamageReport?>(null) }
     var initialOrderForDialog by remember { mutableStateOf<DesktopRentalOrder?>(null) }
@@ -505,6 +629,10 @@ fun DesktopDamageReportsView(
                 (r.orderNumber != null && "#${r.orderNumber}".contains(q))
             matchStatus && matchQuery
         }
+    }
+
+    val activeReport = remember(filteredReports, selectedReportId) {
+        filteredReports.firstOrNull { it.id == selectedReportId } ?: filteredReports.firstOrNull()
     }
 
     Column(modifier = Modifier.fillMaxSize().background(LoyBackground)) {
@@ -553,32 +681,119 @@ fun DesktopDamageReportsView(
         }
         HorizontalDivider(color = LoyBorder)
 
-        if (filteredReports.isEmpty()) {
-            DesktopEmptyState(
-                icon = Icons.Outlined.ReportProblem,
-                title = if (snapshot.damageReports.isEmpty()) "No Damage Reports Logged" else "No Matching Reports",
-                subtitle = "Attach equipment IDs, inspection notes, repair estimates, and damage photos.",
-                action = {
-                    DesktopPrimaryButton(
-                        text = "Document Returned Damage",
-                        icon = Icons.Outlined.AddAPhoto,
-                        containerColor = LoyWarning,
-                        onClick = {
-                            initialOrderForDialog = null
-                            editingReport = null
-                            showCreateDialog = true
+        Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            // Left Master Table (48%)
+            Column(modifier = Modifier.weight(0.48f).fillMaxHeight()) {
+                if (filteredReports.isEmpty()) {
+                    DesktopEmptyState(
+                        icon = Icons.Outlined.ReportProblem,
+                        title = if (snapshot.damageReports.isEmpty()) "No Damage Reports Logged" else "No Matching Reports",
+                        subtitle = "Attach equipment IDs, inspection notes, repair estimates, and damage photos.",
+                        action = {
+                            DesktopPrimaryButton(
+                                text = "Document Returned Damage",
+                                icon = Icons.Outlined.AddAPhoto,
+                                containerColor = LoyWarning,
+                                onClick = {
+                                    initialOrderForDialog = null
+                                    editingReport = null
+                                    showCreateDialog = true
+                                },
+                            )
                         },
+                        modifier = Modifier.weight(1f),
                     )
-                },
-                modifier = Modifier.weight(1f),
-            )
-        } else {
-            LazyColumn(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                } else {
+                    DesktopTableHeaderRow {
+                        DesktopTableHeaderText("Equipment / ID", Modifier.weight(1.4f))
+                        DesktopTableHeaderText("Order / Client", Modifier.weight(1.0f))
+                        DesktopTableHeaderText("Status", Modifier.width(104.dp))
+                        DesktopTableHeaderText("Repair", Modifier.width(82.dp))
+                    }
+                    LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth().background(LoySurface)) {
+                        items(filteredReports, key = { it.id }) { report ->
+                            val statusColors = when (report.status) {
+                                "resolved" -> LoyGreenLight to LoyGreenDark
+                                "repairing" -> LoyWarningLight to LoyWarning
+                                else -> LoyErrorLight to LoyError
+                            }
+                            DesktopTableRow(
+                                selected = activeReport?.id == report.id,
+                                onClick = { selectedReportId = report.id },
+                            ) {
+                                Column(modifier = Modifier.weight(1.4f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(
+                                        text = report.itemName,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        text = buildString {
+                                            append(report.itemId)
+                                            if (report.unitCode.isNotBlank()) append(" · ${report.unitCode}")
+                                            if (report.photoPaths.isNotEmpty()) append(" · ${report.photoPaths.size} photo(s)")
+                                        },
+                                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                                        color = LoyTextMuted,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                                Column(modifier = Modifier.weight(1.0f)) {
+                                    Text(
+                                        text = report.orderNumber?.let { "#${it.toString().padStart(4, '0')}" } ?: "Depot",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                    Text(
+                                        text = report.customerName.ifBlank { "Standalone check" },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = LoyTextMuted,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                                Box(modifier = Modifier.width(104.dp)) {
+                                    DesktopBadge(
+                                        text = report.status.replaceFirstChar { it.uppercase() },
+                                        bgColor = statusColors.first,
+                                        fgColor = statusColors.second,
+                                    )
+                                }
+                                Text(
+                                    text = if (report.repairCostCents > 0L) formatCents(report.repairCostCents, sym) else "—",
+                                    style = TabularMoneyStyle.merge(MaterialTheme.typography.bodySmall),
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (report.repairCostCents > 0L) LoyError else LoyTextMuted,
+                                    textAlign = TextAlign.End,
+                                    modifier = Modifier.width(82.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            VerticalDivider(color = LoyBorder)
+
+            // Right Detail Inspector Pane (52%)
+            Column(
+                modifier = Modifier
+                    .weight(0.52f)
+                    .fillMaxHeight()
+                    .background(LoySurface),
             ) {
-                items(filteredReports, key = { it.id }) { report ->
+                val report = activeReport
+                if (report == null) {
+                    DesktopEmptyState(
+                        icon = Icons.Outlined.ReportProblem,
+                        title = "Select a Damage Report",
+                        subtitle = "Choose any log entry on the left to inspect photos, notes, equipment IDs, and repair status.",
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
                     val statusColors = when (report.status) {
                         "resolved" -> LoyGreenLight to LoyGreenDark
                         "repairing" -> LoyWarningLight to LoyWarning
@@ -590,132 +805,169 @@ fun DesktopDamageReportsView(
                         else -> LoyInfoLight to LoyInfo
                     }
 
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = LoySurface,
-                        border = BorderStroke(1.dp, LoyBorder),
-                        modifier = Modifier.fillMaxWidth(),
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                            .padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
-                        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.Top,
-                            ) {
-                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        DesktopBadge(report.status.replaceFirstChar { it.uppercase() }, statusColors.first, statusColors.second)
-                                        DesktopBadge(report.severity.replaceFirstChar { it.uppercase() }, severityColors.first, severityColors.second)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.Top,
+                        ) {
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    DesktopBadge(report.status.replaceFirstChar { it.uppercase() }, statusColors.first, statusColors.second)
+                                    DesktopBadge("${report.severity.replaceFirstChar { it.uppercase() }} Severity", severityColors.first, severityColors.second)
+                                }
+                                Text(report.itemName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Surface(shape = RoundedCornerShape(4.dp), color = LoySurfaceVariant) {
+                                        Text(
+                                            "ID: ${report.itemId}${if (report.itemSku.isNotBlank()) " · SKU: ${report.itemSku}" else ""}",
+                                            style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                        )
+                                    }
+                                    if (report.unitCode.isNotBlank()) {
                                         Surface(shape = RoundedCornerShape(4.dp), color = LoySurfaceVariant) {
-                                            Text(
-                                                "ID: ${report.itemId}${if (report.itemSku.isNotBlank()) " · SKU: ${report.itemSku}" else ""}",
-                                                style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                            )
-                                        }
-                                        if (report.unitCode.isNotBlank()) {
-                                            Surface(shape = RoundedCornerShape(4.dp), color = LoySurfaceVariant) {
-                                                Row(
-                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(3.dp),
-                                                ) {
-                                                    Icon(Icons.Outlined.QrCode2, contentDescription = null, modifier = Modifier.size(12.dp), tint = LoyTextSecondary)
-                                                    Text(report.unitCode, style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace))
-                                                }
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                            ) {
+                                                Icon(Icons.Outlined.QrCode2, contentDescription = null, modifier = Modifier.size(12.dp), tint = LoyTextSecondary)
+                                                Text(report.unitCode, style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace))
                                             }
                                         }
                                     }
-                                    Text(report.itemName, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                                    val metaParts = listOfNotNull(
-                                        report.orderNumber?.let { "Order #${it.toString().padStart(4, '0')}" },
-                                        report.customerName.takeIf { it.isNotBlank() },
-                                        "Logged ${formatDateTime(report.createdAt)}",
+                                }
+                            }
+                            if (report.repairCostCents > 0L) {
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text("EST. REPAIR", style = MaterialTheme.typography.labelSmall, color = LoyTextMuted)
+                                    Text(
+                                        formatCents(report.repairCostCents, sym),
+                                        style = TabularMoneyStyle.merge(MaterialTheme.typography.headlineSmall),
+                                        color = LoyError,
+                                        fontWeight = FontWeight.Bold,
                                     )
-                                    Text(metaParts.joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = LoyTextMuted)
-                                }
-                                if (report.repairCostCents > 0L) {
-                                    Column(horizontalAlignment = Alignment.End) {
-                                        Text("EST. REPAIR", style = MaterialTheme.typography.labelSmall, color = LoyTextMuted)
-                                        Text(
-                                            formatCents(report.repairCostCents, sym),
-                                            style = TabularMoneyStyle.merge(MaterialTheme.typography.titleMedium),
-                                            color = LoyError,
-                                            fontWeight = FontWeight.Bold,
-                                        )
-                                    }
                                 }
                             }
+                        }
 
-                            if (report.notes.isNotBlank()) {
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = LoySurfaceHover,
-                                    border = BorderStroke(1.dp, LoyBorder),
-                                    modifier = Modifier.fillMaxWidth(),
-                                ) {
-                                    Text(report.notes, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(10.dp))
+                        DesktopSectionCard(title = "Return & Audit Metadata") {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("LINKED ORDER", style = MaterialTheme.typography.labelSmall, color = LoyTextMuted)
+                                    Text(
+                                        report.orderNumber?.let { "#${it.toString().padStart(4, '0')}" } ?: "Standalone Depot Check",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                }
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("CLIENT / RENTER", style = MaterialTheme.typography.labelSmall, color = LoyTextMuted)
+                                    Text(
+                                        report.customerName.ifBlank { "—" },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
                                 }
                             }
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("LOGGED AT", style = MaterialTheme.typography.labelSmall, color = LoyTextMuted)
+                                    Text(formatDateTime(report.createdAt), style = MaterialTheme.typography.bodySmall)
+                                }
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("RESOLVED AT", style = MaterialTheme.typography.labelSmall, color = LoyTextMuted)
+                                    Text(report.resolvedAt?.let { formatDateTime(it) } ?: "Pending", style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                        }
 
-                            if (report.photoPaths.isNotEmpty()) {
-                                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        DesktopSectionCard(title = "Inspection Notes") {
+                            Text(
+                                text = report.notes.ifBlank { "No written inspection notes attached." },
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (report.notes.isBlank()) LoyTextMuted else LoyTextPrimary,
+                            )
+                        }
+
+                        DesktopSectionCard(
+                            title = "Photo Evidence (${report.photoPaths.size})",
+                            subtitle = if (report.photoPaths.isEmpty()) "Click Edit to attach damage photos" else "Click any photo thumbnail to inspect full size",
+                        ) {
+                            if (report.photoPaths.isEmpty()) {
+                                Text("No photos attached to this report.", style = MaterialTheme.typography.bodySmall, color = LoyTextMuted)
+                            } else {
+                                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                     items(report.photoPaths, key = { it }) { path ->
                                         DamagePhotoThumbnail(
                                             path = path,
-                                            sizeDp = 76,
+                                            sizeDp = 112,
                                             onClick = { zoomedPhotoPath = path },
                                         )
                                     }
                                 }
                             }
-
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                if (report.status == "open") {
-                                    DesktopSecondaryButton(
-                                        text = "Start Repair",
-                                        icon = Icons.Outlined.Build,
-                                        onClick = {
-                                            repository.updateDamageReportStatus(report.id, "repairing")
-                                            onToast("Marked as under repair")
-                                        },
-                                    )
-                                }
-                                if (report.status != "resolved") {
-                                    DesktopPrimaryButton(
-                                        text = "Mark Resolved",
-                                        icon = Icons.Outlined.CheckCircle,
-                                        onClick = {
-                                            repository.updateDamageReportStatus(report.id, "resolved")
-                                            onToast("Marked damage report resolved")
-                                        },
-                                    )
-                                } else {
-                                    DesktopSecondaryButton(
-                                        text = "Reopen",
-                                        onClick = {
-                                            repository.updateDamageReportStatus(report.id, "open")
-                                            onToast("Reopened damage report")
-                                        },
-                                    )
-                                }
-                                Spacer(Modifier.weight(1f))
-                                DesktopSecondaryButton(
-                                    text = "Edit",
-                                    icon = Icons.Outlined.Edit,
-                                    onClick = { editingReport = report },
-                                )
-                                DesktopSecondaryButton(
-                                    text = "Delete",
-                                    icon = Icons.Outlined.DeleteOutline,
-                                    contentColor = LoyError,
-                                    onClick = {
-                                        repository.deleteDamageReport(report.id)
-                                        onToast("Deleted damage report")
-                                    },
-                                )
-                            }
                         }
+                    }
+
+                    HorizontalDivider(color = LoyBorder)
+                    Row(
+                        modifier = Modifier.fillMaxWidth().background(LoySurfaceHover).padding(14.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (report.status == "open") {
+                            DesktopSecondaryButton(
+                                text = "Start Repair",
+                                icon = Icons.Outlined.Build,
+                                onClick = {
+                                    repository.updateDamageReportStatus(report.id, "repairing")
+                                    onToast("Marked as under repair")
+                                },
+                            )
+                        }
+                        if (report.status != "resolved") {
+                            DesktopPrimaryButton(
+                                text = "Mark Resolved",
+                                icon = Icons.Outlined.CheckCircle,
+                                onClick = {
+                                    repository.updateDamageReportStatus(report.id, "resolved")
+                                    onToast("Marked damage report resolved")
+                                },
+                            )
+                        } else {
+                            DesktopSecondaryButton(
+                                text = "Reopen",
+                                onClick = {
+                                    repository.updateDamageReportStatus(report.id, "open")
+                                    onToast("Reopened damage report")
+                                },
+                            )
+                        }
+                        Spacer(Modifier.weight(1f))
+                        DesktopSecondaryButton(
+                            text = "Edit",
+                            icon = Icons.Outlined.Edit,
+                            onClick = { editingReport = report },
+                        )
+                        DesktopSecondaryButton(
+                            text = "Delete",
+                            icon = Icons.Outlined.DeleteOutline,
+                            contentColor = LoyError,
+                            onClick = {
+                                repository.deleteDamageReport(report.id)
+                                selectedReportId = null
+                                onToast("Deleted damage report")
+                            },
+                        )
                     }
                 }
             }
@@ -730,6 +982,7 @@ fun DesktopDamageReportsView(
             prefillOrder = initialOrderForDialog,
             onSave = { report, flagUnitMaintenance ->
                 repository.saveDamageReport(report, markUnitMaintenance = flagUnitMaintenance)
+                selectedReportId = report.id
                 onToast("Saved damage report for ${report.itemName}")
                 showCreateDialog = false
                 editingReport = null

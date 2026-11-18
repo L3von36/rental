@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,6 +23,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.outlined.ShowChart
 import androidx.compose.material.icons.automirrored.outlined.TrendingUp
 import androidx.compose.material.icons.outlined.AdminPanelSettings
@@ -169,6 +171,7 @@ fun BackOfficeDashboardScreen(
     var showGoalDialog by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var searchTimeframe by remember { mutableStateOf(RentalTimeframeFilter.ALL) }
+    var selectedRentalId by remember { mutableStateOf<String?>(null) }
 
     val todaySummary = remember(data.receipts, selectedBranchId) {
         viewModel.computeTodaySummary(data, selectedBranchId)
@@ -295,6 +298,15 @@ fun BackOfficeDashboardScreen(
     }
     val windowSize = LocalLoyWindowSize.current
     val metrics = LocalLoyMetrics.current
+    val currentTimeMs = remember(data.receipts) { nowMs() }
+    val branchRecentReceipts = remember(data.receipts, selectedBranchId) {
+        data.receipts.filter { r ->
+            selectedBranchId == null || r.receipt.branchId == null || r.receipt.branchId == selectedBranchId
+        }
+    }
+    val activeDetail = remember(data.receipts, branchRecentReceipts, selectedRentalId) {
+        data.receipts.firstOrNull { it.receipt.id == selectedRentalId } ?: branchRecentReceipts.firstOrNull()
+    }
 
     Column(modifier = Modifier.fillMaxSize().background(LoyBackground)) {
         TopAppBar(
@@ -410,33 +422,36 @@ fun BackOfficeDashboardScreen(
             }
         }
 
-        LazyColumn(
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            contentPadding = PaddingValues(metrics.screenPadding),
-            verticalArrangement = Arrangement.spacedBy(metrics.sectionGap),
-        ) {
-            // Global Rental Agreement Search Bar
-            item {
-                GlobalRentalSearchBar(
-                    query = searchQuery,
-                    onQueryChange = { searchQuery = it },
-                    selectedTimeframe = searchTimeframe,
-                    onSelectTimeframe = { searchTimeframe = it },
-                    searchOutput = boSearchOutput,
-                    currencySymbol = sym,
-                    onSelectAgreement = { result ->
-                        if (result.isHeldQuote) {
-                            onSwitchToPos()
-                        } else {
-                            onNavigateToReceiptDetail(result.id)
-                        }
-                    },
-                    onViewAllRentals = onNavigateToReceipts,
-                    accentColor = BackOfficeTeal,
-                    accentLight = BackOfficeTealLight,
-                    testTagPrefix = "bo_dashboard_search",
-                )
-            }
+        val boMainContent: @Composable (Modifier) -> Unit = { contentModifier ->
+            LazyColumn(
+                modifier = contentModifier,
+                contentPadding = PaddingValues(metrics.screenPadding),
+                verticalArrangement = Arrangement.spacedBy(metrics.sectionGap),
+            ) {
+                // Global Rental Agreement Search Bar
+                item {
+                    GlobalRentalSearchBar(
+                        query = searchQuery,
+                        onQueryChange = { searchQuery = it },
+                        selectedTimeframe = searchTimeframe,
+                        onSelectTimeframe = { searchTimeframe = it },
+                        searchOutput = boSearchOutput,
+                        currencySymbol = sym,
+                        onSelectAgreement = { result ->
+                            if (result.isHeldQuote) {
+                                onSwitchToPos()
+                            } else if (windowSize.useSplitPane) {
+                                selectedRentalId = result.id
+                            } else {
+                                onNavigateToReceiptDetail(result.id)
+                            }
+                        },
+                        onViewAllRentals = onNavigateToReceipts,
+                        accentColor = BackOfficeTeal,
+                        accentLight = BackOfficeTealLight,
+                        testTagPrefix = "bo_dashboard_search",
+                    )
+                }
 
             // Period filter + Executive Financial Summary
             item {
@@ -936,6 +951,99 @@ fun BackOfficeDashboardScreen(
                 }
             }
 
+            // Recent Rental Ledger (clickable Master-Detail selection on desktop/expanded)
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    SectionHeader("Recent Rentals")
+                    if (branchRecentReceipts.isNotEmpty()) {
+                        TextButton(
+                            onClick = onNavigateToReceipts,
+                            modifier = Modifier.heightIn(min = metrics.minTouchTarget),
+                        ) {
+                            Text("View ledger", color = BackOfficeTeal)
+                        }
+                    }
+                }
+                GroupCard {
+                    val recent = branchRecentReceipts.take(5)
+                    if (recent.isEmpty()) {
+                        EmptyState(
+                            icon = Icons.Outlined.ReceiptLong,
+                            title = "No rental orders yet",
+                            subtitle = "Completed rentals will appear here for executive audit.",
+                        )
+                    } else {
+                        Column {
+                            recent.forEachIndexed { idx, item ->
+                                if (idx > 0) HorizontalDivider(color = LoyBorder)
+                                val r = item.receipt
+                                val isSelected = windowSize.useSplitPane && activeDetail?.receipt?.id == r.id
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 48.dp)
+                                        .background(if (isSelected) BackOfficeTealLight.copy(alpha = 0.55f) else Color.Transparent)
+                                        .clickable {
+                                            if (windowSize.useSplitPane) {
+                                                selectedRentalId = r.id
+                                            } else {
+                                                onNavigateToReceiptDetail(r.id)
+                                            }
+                                        }
+                                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                                        .testTag("bo_recent_sale_${r.id}"),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    if (windowSize.useSplitPane) {
+                                        Box(
+                                            modifier = Modifier
+                                                .width(3.dp)
+                                                .height(26.dp)
+                                                .clip(RoundedCornerShape(2.dp))
+                                                .background(if (isSelected) BackOfficeTeal else Color.Transparent),
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                    }
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            Text("#${r.number.toString().padStart(4, '0')} · ${r.rentalDays}d", fontWeight = FontWeight.SemiBold)
+                                            when {
+                                                !r.isCompleted -> PillBadge("Refunded", LoyErrorLight, LoyError)
+                                                r.isReturned -> PillBadge("Returned", LoyGreenLight, LoyGreen)
+                                                r.isOverdue(currentTimeMs) -> PillBadge("Overdue", LoyErrorLight, LoyError)
+                                                else -> PillBadge("Out", BackOfficeTealLight, BackOfficeTeal)
+                                            }
+                                        }
+                                        Text(
+                                            text = "${formatDateTime(r.createdAt)}${if (!r.customerName.isNullOrEmpty()) " · ${r.customerName}" else ""}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = LoyTextSecondary,
+                                        )
+                                    }
+                                    Text(
+                                        text = formatCents(r.totalCents, sym),
+                                        style = TabularMoneyStyle.merge(MaterialTheme.typography.titleMedium),
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (r.isCompleted) BackOfficeNavy else LoyError,
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Icon(
+                                        Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                                        contentDescription = "Inspect rental",
+                                        tint = if (isSelected) BackOfficeTeal else LoyTextSecondary,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Quick Back Office Management shortcuts
             item {
                 SectionHeader("Back Office Shortcuts")
@@ -985,6 +1093,25 @@ fun BackOfficeDashboardScreen(
                 }
                 Spacer(Modifier.height(8.dp))
             }
+        }
+        }
+
+        if (windowSize.useSplitPane) {
+            Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                boMainContent(Modifier.weight(0.60f).fillMaxHeight())
+                Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(LoyBorder))
+                RentalDetailInspectorPane(
+                    viewModel = viewModel,
+                    receiptWithLines = activeDetail,
+                    data = data,
+                    onOpenFullScreen = onNavigateToReceiptDetail,
+                    emptyTitle = "Rental Audit Inspector",
+                    emptySubtitle = "Click any rental in Recent Rentals or Global Search to view line items, agreement, and return status.",
+                    modifier = Modifier.weight(0.40f),
+                )
+            }
+        } else {
+            boMainContent(Modifier.weight(1f).fillMaxWidth())
         }
     }
 

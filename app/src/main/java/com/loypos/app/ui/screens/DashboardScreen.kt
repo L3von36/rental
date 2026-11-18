@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -17,7 +18,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -145,6 +145,7 @@ fun DashboardScreen(
     onNavigateToAgreements: () -> Unit = {},
     onNavigateToEventKits: () -> Unit = {},
     onNavigateToDamageReports: () -> Unit = {},
+    onReportDamage: (String, String?) -> Unit = { _, _ -> },
     onNavigateToReceipts: () -> Unit,
     onNavigateToReceiptDetail: (String) -> Unit,
     onOpenHeldQuote: (String) -> Unit = {},
@@ -152,6 +153,7 @@ fun DashboardScreen(
     var showBranchSheet by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var searchTimeframe by remember { mutableStateOf(RentalTimeframeFilter.ALL) }
+    var selectedRentalId by remember { mutableStateOf<String?>(null) }
 
     val sym = data.settings.currencySymbol
     val branchId = session.activeBranchId
@@ -257,6 +259,17 @@ fun DashboardScreen(
 
     val windowSize = LocalLoyWindowSize.current
     val metrics = LocalLoyMetrics.current
+    val activeDetail = remember(data.receipts, branchReceipts, selectedRentalId) {
+        data.receipts.firstOrNull { it.receipt.id == selectedRentalId } ?: branchReceipts.firstOrNull()
+    }
+    val quickActionCols = remember(windowSize) {
+        when {
+            windowSize.isDesktop -> 6
+            windowSize.isExpanded -> 4
+            windowSize.isMedium -> 4
+            else -> 3
+        }
+    }
 
     Column(modifier = Modifier.fillMaxSize().background(LoyBackground)) {
         TopAppBar(
@@ -345,160 +358,175 @@ fun DashboardScreen(
         )
         HorizontalDivider(color = LoyBorder)
 
-        LazyColumn(
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            contentPadding = PaddingValues(metrics.screenPadding),
-            verticalArrangement = Arrangement.spacedBy(metrics.sectionGap),
-        ) {
-            // Global Rental Agreement Search Bar
-            item {
-                GlobalRentalSearchBar(
-                    query = searchQuery,
-                    onQueryChange = { searchQuery = it },
-                    selectedTimeframe = searchTimeframe,
-                    onSelectTimeframe = { searchTimeframe = it },
-                    searchOutput = agreementSearchOutput,
-                    currencySymbol = sym,
-                    onSelectAgreement = { result ->
-                        if (result.isHeldQuote) {
-                            onOpenHeldQuote(result.id)
-                        } else {
-                            onNavigateToReceiptDetail(result.id)
-                        }
-                    },
-                    onViewAllRentals = onNavigateToReceipts,
-                    testTagPrefix = "dashboard_search",
-                )
-            }
-
-            // Today's Overview
-            item {
-                SectionHeader("Today's Overview")
-                GroupCard {
-                    Column(
-                        modifier = Modifier.padding(metrics.cardPadding),
-                        verticalArrangement = Arrangement.spacedBy(metrics.itemGap),
-                    ) {
-                        if (windowSize.isCompact) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(metrics.itemGap)) {
-                                StatBlock(
-                                    label = "Net rentals",
-                                    value = formatCents(todaySummary.netCents, sym),
-                                    valueColor = LoyGreen,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                StatBlock(
-                                    label = "Rentals / Refunds",
-                                    value = "${todaySummary.salesCount} / ${todaySummary.refundsCount}",
-                                    modifier = Modifier.weight(1f),
-                                )
+        val dashboardContent: @Composable (Modifier) -> Unit = { contentModifier ->
+            LazyColumn(
+                modifier = contentModifier,
+                contentPadding = PaddingValues(metrics.screenPadding),
+                verticalArrangement = Arrangement.spacedBy(metrics.sectionGap),
+            ) {
+                // Global Rental Agreement Search Bar
+                item {
+                    GlobalRentalSearchBar(
+                        query = searchQuery,
+                        onQueryChange = { searchQuery = it },
+                        selectedTimeframe = searchTimeframe,
+                        onSelectTimeframe = { searchTimeframe = it },
+                        searchOutput = agreementSearchOutput,
+                        currencySymbol = sym,
+                        onSelectAgreement = { result ->
+                            if (result.isHeldQuote) {
+                                onOpenHeldQuote(result.id)
+                            } else if (windowSize.useSplitPane) {
+                                selectedRentalId = result.id
+                            } else {
+                                onNavigateToReceiptDetail(result.id)
                             }
-                            Row(horizontalArrangement = Arrangement.spacedBy(metrics.itemGap)) {
-                                StatBlock(
-                                    label = "Avg booking",
-                                    value = formatCents(avgTicketCents, sym),
-                                    modifier = Modifier.weight(1f),
-                                )
-                                StatBlock(
-                                    label = "Out now / Overdue",
-                                    value = "$activeOutCount / $overdueCount",
-                                    valueColor = if (overdueCount > 0) LoyError else LoyInfo,
-                                    modifier = Modifier.weight(1f),
-                                )
-                            }
-                        } else {
-                            Row(horizontalArrangement = Arrangement.spacedBy(metrics.itemGap)) {
-                                StatBlock(
-                                    label = "Net rentals",
-                                    value = formatCents(todaySummary.netCents, sym),
-                                    valueColor = LoyGreen,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                StatBlock(
-                                    label = "Rentals / Refunds",
-                                    value = "${todaySummary.salesCount} / ${todaySummary.refundsCount}",
-                                    modifier = Modifier.weight(1f),
-                                )
-                                StatBlock(
-                                    label = "Avg booking",
-                                    value = formatCents(avgTicketCents, sym),
-                                    modifier = Modifier.weight(1f),
-                                )
-                                StatBlock(
-                                    label = "Out now / Overdue",
-                                    value = "$activeOutCount / $overdueCount",
-                                    valueColor = if (overdueCount > 0) LoyError else LoyInfo,
-                                    modifier = Modifier.weight(1f),
-                                )
-                            }
-                        }
-                        Button(
-                            onClick = onNavigateToCheckout,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = metrics.minTouchTarget)
-                                .testTag("dashboard_start_checkout_button"),
-                        ) {
-                            Icon(Icons.Outlined.PointOfSale, contentDescription = null, modifier = Modifier.size(17.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Open Rent Desk", fontWeight = FontWeight.SemiBold)
-                        }
-                    }
+                        },
+                        onViewAllRentals = onNavigateToReceipts,
+                        testTagPrefix = "dashboard_search",
+                    )
                 }
-            }
 
-            // Quick Actions
-            item {
-                SectionHeader("Quick Actions")
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(quickActions, key = { it.tag }) { action ->
-                        Surface(
-                            shape = RoundedCornerShape(11.dp),
-                            color = LoySurface,
-                            border = BorderStroke(1.dp, LoyBorder),
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(11.dp))
-                                .clickable(onClick = action.onClick)
-                                .testTag(action.tag),
+                // Today's Overview
+                item {
+                    SectionHeader("Today's Overview")
+                    GroupCard {
+                        Column(
+                            modifier = Modifier.padding(metrics.cardPadding),
+                            verticalArrangement = Arrangement.spacedBy(metrics.itemGap),
                         ) {
-                            Column(
-                                modifier = Modifier
-                                    .width(76.dp)
-                                    .heightIn(min = 66.dp)
-                                    .padding(horizontal = 6.dp, vertical = 8.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center,
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(30.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(LoyGreenLight),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Icon(
-                                        imageVector = action.icon,
-                                        contentDescription = action.label,
-                                        tint = LoyGreen,
-                                        modifier = Modifier.size(17.dp),
+                            if (windowSize.isCompact) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(metrics.itemGap)) {
+                                    StatBlock(
+                                        label = "Net rentals",
+                                        value = formatCents(todaySummary.netCents, sym),
+                                        valueColor = LoyGreen,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    StatBlock(
+                                        label = "Rentals / Refunds",
+                                        value = "${todaySummary.salesCount} / ${todaySummary.refundsCount}",
+                                        modifier = Modifier.weight(1f),
                                     )
                                 }
-                                Spacer(Modifier.height(4.dp))
-                                Text(
-                                    text = action.label,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = LoyTextPrimary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(metrics.itemGap)) {
+                                    StatBlock(
+                                        label = "Avg booking",
+                                        value = formatCents(avgTicketCents, sym),
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    StatBlock(
+                                        label = "Out now / Overdue",
+                                        value = "$activeOutCount / $overdueCount",
+                                        valueColor = if (overdueCount > 0) LoyError else LoyInfo,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+                            } else {
+                                Row(horizontalArrangement = Arrangement.spacedBy(metrics.itemGap)) {
+                                    StatBlock(
+                                        label = "Net rentals",
+                                        value = formatCents(todaySummary.netCents, sym),
+                                        valueColor = LoyGreen,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    StatBlock(
+                                        label = "Rentals / Refunds",
+                                        value = "${todaySummary.salesCount} / ${todaySummary.refundsCount}",
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    StatBlock(
+                                        label = "Avg booking",
+                                        value = formatCents(avgTicketCents, sym),
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    StatBlock(
+                                        label = "Out now / Overdue",
+                                        value = "$activeOutCount / $overdueCount",
+                                        valueColor = if (overdueCount > 0) LoyError else LoyInfo,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+                            }
+                            Button(
+                                onClick = onNavigateToCheckout,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = metrics.minTouchTarget)
+                                    .testTag("dashboard_start_checkout_button"),
+                            ) {
+                                Icon(Icons.Outlined.PointOfSale, contentDescription = null, modifier = Modifier.size(17.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Open Rent Desk", fontWeight = FontWeight.SemiBold)
                             }
                         }
                     }
                 }
-            }
+
+                // Responsive Quick Actions Grid
+                item {
+                    SectionHeader("Quick Actions")
+                    val rows = remember(quickActions, quickActionCols) {
+                        quickActions.chunked(quickActionCols)
+                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        rows.forEach { rowItems ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                rowItems.forEach { action ->
+                                    Surface(
+                                        shape = RoundedCornerShape(11.dp),
+                                        color = LoySurface,
+                                        border = BorderStroke(1.dp, LoyBorder),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(11.dp))
+                                            .clickable(onClick = action.onClick)
+                                            .testTag(action.tag),
+                                    ) {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .heightIn(min = 66.dp)
+                                                .padding(horizontal = 6.dp, vertical = 9.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.Center,
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(30.dp)
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(LoyGreenLight),
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                Icon(
+                                                    imageVector = action.icon,
+                                                    contentDescription = action.label,
+                                                    tint = LoyGreen,
+                                                    modifier = Modifier.size(17.dp),
+                                                )
+                                            }
+                                            Spacer(Modifier.height(5.dp))
+                                            Text(
+                                                text = action.label,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = LoyTextPrimary,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                        }
+                                    }
+                                }
+                                repeat(quickActionCols - rowItems.size) {
+                                    Spacer(Modifier.weight(1f))
+                                }
+                            }
+                        }
+                    }
+                }
 
             // Monthly Rental Income & Equipment Utilization Rate Charts (Vico)
             if (windowSize.isExpanded) {
@@ -773,15 +801,33 @@ fun DashboardScreen(
                             recent.forEachIndexed { idx, item ->
                                 if (idx > 0) HorizontalDivider(color = LoyBorder)
                                 val r = item.receipt
+                                val isSelected = windowSize.useSplitPane && activeDetail?.receipt?.id == r.id
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .heightIn(min = 46.dp)
-                                        .clickable { onNavigateToReceiptDetail(r.id) }
+                                        .heightIn(min = 48.dp)
+                                        .background(if (isSelected) LoyGreenLight.copy(alpha = 0.5f) else Color.Transparent)
+                                        .clickable {
+                                            if (windowSize.useSplitPane) {
+                                                selectedRentalId = r.id
+                                            } else {
+                                                onNavigateToReceiptDetail(r.id)
+                                            }
+                                        }
                                         .padding(horizontal = 12.dp, vertical = 8.dp)
                                         .testTag("dashboard_recent_sale_${r.id}"),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
+                                    if (windowSize.useSplitPane) {
+                                        Box(
+                                            modifier = Modifier
+                                                .width(3.dp)
+                                                .height(28.dp)
+                                                .clip(RoundedCornerShape(2.dp))
+                                                .background(if (isSelected) LoyGreen else Color.Transparent),
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                    }
                                     Column(modifier = Modifier.weight(1f)) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
@@ -834,8 +880,8 @@ fun DashboardScreen(
                                     Spacer(Modifier.width(4.dp))
                                     Icon(
                                         Icons.AutoMirrored.Outlined.KeyboardArrowRight,
-                                        contentDescription = "Open rental",
-                                        tint = LoyTextSecondary,
+                                        contentDescription = "Inspect rental",
+                                        tint = if (isSelected) LoyGreen else LoyTextSecondary,
                                         modifier = Modifier.size(18.dp),
                                     )
                                 }
@@ -844,6 +890,26 @@ fun DashboardScreen(
                     }
                 }
             }
+        }
+        }
+
+        if (windowSize.useSplitPane) {
+            Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                dashboardContent(Modifier.weight(0.60f).fillMaxHeight())
+                Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(LoyBorder))
+                RentalDetailInspectorPane(
+                    viewModel = viewModel,
+                    receiptWithLines = activeDetail,
+                    data = data,
+                    onReportDamage = onReportDamage,
+                    onOpenFullScreen = onNavigateToReceiptDetail,
+                    emptyTitle = "Rental Inspector",
+                    emptySubtitle = "Select any rental record or global search result on the left to inspect equipment, contract, and return actions.",
+                    modifier = Modifier.weight(0.40f),
+                )
+            }
+        } else {
+            dashboardContent(Modifier.weight(1f).fillMaxWidth())
         }
     }
 
