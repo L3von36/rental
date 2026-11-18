@@ -6,6 +6,7 @@ import com.loypos.app.data.local.EventKitEntity
 import com.loypos.app.data.local.EventKitItemEntity
 import com.loypos.app.data.local.EventKitWithItems
 import com.loypos.app.data.local.ItemEntity
+import com.loypos.app.data.local.MaintenanceScheduleEntity
 
 object DemoCatalog {
     val categories: List<CategoryEntity> = listOf(
@@ -193,4 +194,53 @@ object DemoCatalog {
             ),
         )
     }
+
+    fun defaultMaintenanceSchedules(now: Long = nowMs()): List<MaintenanceScheduleEntity> = listOf(
+        MaintenanceScheduleEntity(
+            id = "maint-001",
+            itemId = "eq-029",
+            itemName = "Dual 15-inch Active PA Speaker",
+            serviceTitle = "Acoustic calibration & amp check",
+            intervalDays = 30,
+            intervalRentals = 12,
+            lastServicedMs = now - 14L * 86_400_000L,
+            nextDueMs = now + 16L * 86_400_000L,
+            status = MaintenanceScheduleEntity.STATUS_SCHEDULED,
+            priority = MaintenanceScheduleEntity.PRIORITY_ROUTINE,
+            technicianName = "Lead Sound Tech",
+            notes = "Check woofer voice coil and Bluetooth receiver sync.",
+            createdAt = now,
+        ),
+        MaintenanceScheduleEntity(
+            id = "maint-002",
+            itemId = "eq-022",
+            itemName = "230W Moving Head Beam Light",
+            serviceTitle = "Optics cleaning & DMX firmware sync",
+            intervalDays = 21,
+            intervalRentals = 8,
+            lastServicedMs = now - 25L * 86_400_000L,
+            nextDueMs = now - 4L * 86_400_000L,
+            status = MaintenanceScheduleEntity.STATUS_OVERDUE,
+            priority = MaintenanceScheduleEntity.PRIORITY_HIGH,
+            technicianName = "Lighting Specialist",
+            notes = "Clean pan/tilt mirrors and check color wheel servo alignment.",
+            createdAt = now,
+        ),
+        MaintenanceScheduleEntity(
+            id = "maint-003",
+            itemId = "eq-004",
+            itemName = "Clear-Span Wedding Marquee 10x20m",
+            serviceTitle = "Waterproofing spray & ratchet strap test",
+            intervalDays = 45,
+            intervalRentals = 15,
+            lastServicedMs = now - 10L * 86_400_000L,
+            nextDueMs = now + 35L * 86_400_000L,
+            status = MaintenanceScheduleEntity.STATUS_SCHEDULED,
+            priority = MaintenanceScheduleEntity.PRIORITY_ROUTINE,
+            technicianName = "Rigging Crew",
+            notes = "Inspect PVC canopy seams and corner poles for rust.",
+            createdAt = now,
+        ),
+    )
 }
+

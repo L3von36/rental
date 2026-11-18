@@ -958,14 +958,21 @@ fun EquipmentView(
                             maxLines = 1,
                             modifier = Modifier.width(88.dp),
                         )
-                        Text(
-                            text = item.name,
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1.5f),
-                        )
+                        Column(modifier = Modifier.weight(1.5f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = item.name,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            val timesRented = repository.getItemRentalCount(item.id)
+                            Text(
+                                text = "${item.sku.ifBlank { item.id.take(8) }} · Rented $timesRented time${if (timesRented == 1) "" else "s"}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = LoyTextMuted,
+                            )
+                        }
                         Box(modifier = Modifier.weight(0.85f)) {
                             DesktopBadge(
                                 text = catName,

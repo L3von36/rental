@@ -635,3 +635,40 @@ data class EquipmentUtilizationPoint(
     val revenueCents: Long,
 )
 
+@Entity(
+    tableName = "maintenance_schedules",
+    indices = [
+        Index(value = ["item_id"]),
+        Index(value = ["created_at"]),
+    ],
+)
+data class MaintenanceScheduleEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "item_id") val itemId: String,
+    @ColumnInfo(name = "item_name") val itemName: String,
+    @ColumnInfo(name = "service_title") val serviceTitle: String,
+    @ColumnInfo(name = "interval_days") val intervalDays: Int = 30,
+    @ColumnInfo(name = "interval_rentals") val intervalRentals: Int = 10,
+    @ColumnInfo(name = "last_serviced_ms") val lastServicedMs: Long = 0L,
+    @ColumnInfo(name = "next_due_ms") val nextDueMs: Long = 0L,
+    val status: String = STATUS_SCHEDULED, // "scheduled" | "in_service" | "completed" | "overdue"
+    val priority: String = PRIORITY_ROUTINE, // "routine" | "high" | "urgent"
+    @ColumnInfo(name = "technician_name") val technicianName: String = "Depot Technician",
+    val notes: String = "",
+    @ColumnInfo(name = "created_at") val createdAt: Long = 0L,
+) {
+    fun isDue(nowMs: Long): Boolean = nextDueMs in 1 until nowMs || status == STATUS_OVERDUE
+
+    companion object {
+        const val STATUS_SCHEDULED = "scheduled"
+        const val STATUS_IN_SERVICE = "in_service"
+        const val STATUS_COMPLETED = "completed"
+        const val STATUS_OVERDUE = "overdue"
+
+        const val PRIORITY_ROUTINE = "routine"
+        const val PRIORITY_HIGH = "high"
+        const val PRIORITY_URGENT = "urgent"
+    }
+}
+
+

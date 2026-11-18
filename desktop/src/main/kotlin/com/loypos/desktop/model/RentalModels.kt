@@ -213,6 +213,25 @@ data class DesktopDamageReport(
 )
 
 @Serializable
+data class DesktopMaintenanceSchedule(
+    val id: String,
+    val itemId: String,
+    val itemName: String,
+    val serviceTitle: String, // e.g. "Acoustic calibration & amp check", "Rigging safety inspection"
+    val intervalDays: Int = 30,
+    val intervalRentals: Int = 10,
+    val lastServicedMs: Long = 0L,
+    val nextDueMs: Long = 0L,
+    val status: String = "scheduled", // "scheduled" | "in_service" | "completed" | "overdue"
+    val priority: String = "routine", // "routine" | "high" | "urgent"
+    val technicianName: String = "Depot Technician",
+    val notes: String = "",
+    val createdAt: Long = 0L,
+) {
+    fun isDue(nowMs: Long): Boolean = nextDueMs in 1 until nowMs || status == "overdue"
+}
+
+@Serializable
 data class DesktopStoreSnapshot(
     val categories: List<DesktopCategory> = emptyList(),
     val items: List<DesktopEquipment> = emptyList(),
@@ -225,6 +244,7 @@ data class DesktopStoreSnapshot(
     val agreementTemplates: List<DesktopAgreementTemplate> = emptyList(),
     val eventKits: List<DesktopEventKit> = emptyList(),
     val damageReports: List<DesktopDamageReport> = emptyList(),
+    val maintenanceSchedules: List<DesktopMaintenanceSchedule> = emptyList(),
 )
 
 // Android-compatible export envelope (loypos-export v1) for seamless Android <-> Desktop transfer

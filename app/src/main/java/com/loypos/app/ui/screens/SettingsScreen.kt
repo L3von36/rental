@@ -33,6 +33,7 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AdminPanelSettings
 import androidx.compose.material.icons.outlined.Assessment
 import androidx.compose.material.icons.outlined.Backup
+import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.CloudSync
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Description
@@ -201,6 +202,7 @@ fun SettingsScreen(
     onNavigateToShift: () -> Unit,
     onNavigateToQrTracking: () -> Unit = {},
     onNavigateToAgreements: () -> Unit = {},
+    onNavigateToMaintenance: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val user = session.currentUser
@@ -359,6 +361,14 @@ fun SettingsScreen(
                         subtitle = "${data.agreementTemplates.size} reusable contract templates with merge fields",
                         onClick = onNavigateToAgreements,
                         modifier = Modifier.testTag("nav_backoffice_agreements"),
+                    )
+                    HorizontalDivider(color = LoyBorder)
+                    SettingsNavRow(
+                        icon = Icons.Outlined.Build,
+                        title = "Routine Equipment Maintenance",
+                        subtitle = "${data.maintenanceSchedules.size} recurring service schedules · High-value sound & light rigs",
+                        onClick = onNavigateToMaintenance,
+                        modifier = Modifier.testTag("nav_backoffice_maintenance"),
                     )
                 }
             }

@@ -36,6 +36,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.Category
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.ImportExport
@@ -138,6 +139,7 @@ fun InventoryScreen(
     data: LoyPosDataState,
     onNavigateToStock: () -> Unit,
     onNavigateToQrTracking: (String?) -> Unit = {},
+    onNavigateToMaintenance: (String?) -> Unit = {},
 ) {
     var tabIndex by remember { mutableIntStateOf(0) }
     val search by viewModel.inventorySearchQuery.collectAsStateWithLifecycle()
@@ -468,7 +470,18 @@ fun InventoryScreen(
                                                     style = MaterialTheme.typography.bodySmall,
                                                     color = LoyTextSecondary,
                                                 )
-                                                StockDotBadge(item = product, threshold = threshold)
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                ) {
+                                                    StockDotBadge(item = product, threshold = threshold)
+                                                    val rentCount = data.itemRentalCount(product.id)
+                                                    Text(
+                                                        "· Rented ${rentCount}x",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = LoyTextSecondary,
+                                                    )
+                                                }
                                             }
                                             Text(
                                                 "${formatCents(product.priceCents, sym)}/d",
@@ -512,6 +525,11 @@ fun InventoryScreen(
                                                 editingItem = null
                                                 isCreatingItem = false
                                                 onNavigateToQrTracking(targetProduct.id)
+                                            },
+                                            onOpenMaintenance = {
+                                                editingItem = null
+                                                isCreatingItem = false
+                                                onNavigateToMaintenance(targetProduct.id)
                                             },
                                             onSave = { updated, pickedUri, removePhoto ->
                                                 viewModel.saveItem(updated, pickedUri, removePhoto)
@@ -715,6 +733,10 @@ fun InventoryScreen(
                     editingItem = null
                     onNavigateToQrTracking(item.id)
                 },
+                onOpenMaintenance = {
+                    editingItem = null
+                    onNavigateToMaintenance(item.id)
+                },
                 onSave = { updated, pickedUri, removePhoto ->
                     viewModel.saveItem(updated, pickedUri, removePhoto)
                     editingItem = null
@@ -787,6 +809,7 @@ private fun ProductEditorBottomSheet(
     isNew: Boolean,
     data: LoyPosDataState,
     onOpenQrUnits: () -> Unit,
+    onOpenMaintenance: () -> Unit = {},
     onSave: (ProductEntity, Uri?, Boolean) -> Unit,
     onDelete: () -> Unit,
     onDismiss: () -> Unit,
@@ -808,6 +831,7 @@ private fun ProductEditorBottomSheet(
                 isNew = isNew,
                 data = data,
                 onOpenQrUnits = onOpenQrUnits,
+                onOpenMaintenance = onOpenMaintenance,
                 onSave = onSave,
                 onDelete = onDelete,
             )
@@ -823,6 +847,7 @@ private fun ProductEditorFormContent(
     isNew: Boolean,
     data: LoyPosDataState,
     onOpenQrUnits: () -> Unit,
+    onOpenMaintenance: () -> Unit = {},
     onSave: (ProductEntity, Uri?, Boolean) -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -1098,6 +1123,33 @@ private fun ProductEditorFormContent(
             }
 
             if (!isNew) {
+                val count = data.itemRentalCount(product.id)
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFFF8FAFC),
+                    border = BorderStroke(1.dp, LoyBorder),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column {
+                            Text("Rental Wear & Frequency", style = MaterialTheme.typography.labelSmall, color = LoyTextSecondary)
+                            Text("Rented $count times", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                        }
+                        OutlinedButton(
+                            onClick = onOpenMaintenance,
+                            modifier = Modifier.height(34.dp).testTag("item_schedule_service_btn"),
+                        ) {
+                            Icon(Icons.Outlined.Build, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Service Schedule", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+
                 OutlinedButton(
                     onClick = onOpenQrUnits,
                     modifier = Modifier.fillMaxWidth().height(42.dp).testTag("item_qr_units_button"),

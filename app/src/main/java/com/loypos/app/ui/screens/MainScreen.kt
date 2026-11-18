@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.AdminPanelSettings
 import androidx.compose.material.icons.outlined.Assessment
+import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.Description
@@ -91,6 +92,7 @@ import com.loypos.app.ui.navigation.DamageReportsRoute
 import com.loypos.app.ui.navigation.DashboardRoute
 import com.loypos.app.ui.navigation.EventKitsRoute
 import com.loypos.app.ui.navigation.InventoryRoute
+import com.loypos.app.ui.navigation.MaintenanceRoute
 import com.loypos.app.ui.navigation.PaymentRoute
 import com.loypos.app.ui.navigation.QrTrackingRoute
 import com.loypos.app.ui.navigation.ReceiptDetailRoute
@@ -249,6 +251,7 @@ fun MainScreen(
                 TopLevelDestination(EventKitsRoute, EventKitsRoute::class, "Event Kits", Icons.Outlined.Layers, "nav_event_kits", "FLEET & LOGS"),
                 TopLevelDestination(QrTrackingRoute(), QrTrackingRoute::class, "QR Track", Icons.Outlined.QrCodeScanner, "nav_qr_track", "FLEET & LOGS"),
                 TopLevelDestination(DamageReportsRoute(), DamageReportsRoute::class, "Damage Log", Icons.Outlined.ReportProblem, "nav_damage_log", "FLEET & LOGS"),
+                TopLevelDestination(MaintenanceRoute(), MaintenanceRoute::class, "Maintenance", Icons.Outlined.Build, "nav_maintenance", "FLEET & LOGS"),
                 TopLevelDestination(AgreementsRoute, AgreementsRoute::class, "Contracts", Icons.Outlined.Description, "nav_contracts", "FLEET & LOGS"),
                 TopLevelDestination(CustomersRoute, CustomersRoute::class, "Clients", Icons.Outlined.PeopleOutline, "nav_clients", "DIRECTORY"),
                 TopLevelDestination(ReportsRoute, ReportsRoute::class, "Reports", Icons.Outlined.Assessment, "nav_reports", "DIRECTORY"),
@@ -478,6 +481,9 @@ fun MainScreen(
                                 onNavigateToQrTracking = { itemId ->
                                     navController.navigate(QrTrackingRoute(initialItemId = itemId))
                                 },
+                                onNavigateToMaintenance = { itemId ->
+                                    navController.navigate(MaintenanceRoute(initialItemId = itemId))
+                                },
                             )
                         }
 
@@ -526,6 +532,7 @@ fun MainScreen(
                                 onNavigateToShift = { navController.navigate(ShiftRoute) },
                                 onNavigateToQrTracking = { navController.navigate(QrTrackingRoute()) },
                                 onNavigateToAgreements = { navController.navigate(AgreementsRoute) },
+                                onNavigateToMaintenance = { navController.navigate(MaintenanceRoute()) },
                             )
                         }
 
@@ -672,6 +679,16 @@ fun MainScreen(
                             initialReceiptId = args.initialReceiptId,
                             initialItemId = args.initialItemId,
                             initialUnitCode = args.initialUnitCode,
+                            onBack = { navController.popBackStack() },
+                        )
+                    }
+
+                    composable<MaintenanceRoute> { entry ->
+                        val args = entry.toRoute<MaintenanceRoute>()
+                        MaintenanceScreen(
+                            viewModel = viewModel,
+                            data = data,
+                            initialItemId = args.initialItemId,
                             onBack = { navController.popBackStack() },
                         )
                     }

@@ -30,6 +30,7 @@ import androidx.compose.material.icons.outlined.AssignmentReturn
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.CreditCard
 import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Payments
 import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material.icons.outlined.QrCodeScanner
@@ -38,6 +39,8 @@ import androidx.compose.material.icons.outlined.ReportProblem
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -62,6 +65,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -147,12 +151,57 @@ fun ReceiptsScreen(
         filtered.firstOrNull { it.receipt.id == selectedReceiptId } ?: filtered.firstOrNull()
     }
 
+    var showExportMenu by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
     Column(modifier = Modifier.fillMaxSize().background(LoyBackground)) {
         TopAppBar(
             expandedHeight = metrics.topBarHeight,
             title = { Text("Rentals & Returns", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = LoySurface),
             actions = {
+                Box {
+                    IconButton(
+                        onClick = { showExportMenu = true },
+                        modifier = Modifier
+                            .accessibleTouchTarget(metrics.minTouchTarget)
+                            .testTag("receipts_export_button"),
+                    ) {
+                        Icon(
+                            Icons.Outlined.FileDownload,
+                            contentDescription = "Export Rental History",
+                            tint = LoyGreen,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = showExportMenu,
+                        onDismissRequest = { showExportMenu = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Export CSV (Accounting)") },
+                            leadingIcon = {
+                                Icon(Icons.Outlined.ReceiptLong, contentDescription = null, modifier = Modifier.size(18.dp))
+                            },
+                            onClick = {
+                                showExportMenu = false
+                                viewModel.exportRentalHistoryCsv(context)
+                            },
+                            modifier = Modifier.testTag("receipts_export_csv_menu"),
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Export Audit Report (PDF)") },
+                            leadingIcon = {
+                                Icon(Icons.Outlined.PictureAsPdf, contentDescription = null, modifier = Modifier.size(18.dp))
+                            },
+                            onClick = {
+                                showExportMenu = false
+                                viewModel.exportRentalHistoryPdf(context)
+                            },
+                            modifier = Modifier.testTag("receipts_export_pdf_menu"),
+                        )
+                    }
+                }
                 IconButton(
                     onClick = onNavigateToQrTracking,
                     modifier = Modifier

@@ -24,9 +24,11 @@ import androidx.compose.material.icons.automirrored.outlined.AssignmentReturn
 import androidx.compose.material.icons.automirrored.outlined.ReceiptLong
 import androidx.compose.material.icons.automirrored.outlined.Undo
 import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.Print
 import androidx.compose.material.icons.outlined.ReportProblem
+import androidx.compose.material.icons.outlined.TableView
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -60,6 +62,9 @@ import com.loypos.desktop.core.nowMs
 import com.loypos.desktop.data.DesktopRepository
 import com.loypos.desktop.model.DesktopRentalOrder
 import com.loypos.desktop.model.DesktopStoreSnapshot
+import java.io.File
+import javax.swing.JFileChooser
+import javax.swing.filechooser.FileNameExtensionFilter
 
 @Composable
 fun RentalOrdersView(
@@ -138,6 +143,34 @@ fun RentalOrdersView(
                             onValueChange = { search = it },
                             placeholder = "Search #order, customer, event, venue, or gear...",
                             modifier = Modifier.weight(1f),
+                        )
+                        DesktopSecondaryButton(
+                            text = "Export CSV",
+                            icon = Icons.Outlined.TableView,
+                            onClick = {
+                                val chooser = JFileChooser().apply {
+                                    selectedFile = File("loypos-rental-history.csv")
+                                    fileFilter = FileNameExtensionFilter("CSV Ledger (*.csv)", "csv")
+                                }
+                                if (chooser.showSaveDialog(null) == JFileChooser.APPROVE_OPTION) {
+                                    val count = repository.exportRentalHistoryCsv(chooser.selectedFile)
+                                    onToast("Exported $count rental history rows to ${chooser.selectedFile.name}")
+                                }
+                            },
+                        )
+                        DesktopSecondaryButton(
+                            text = "Export Report",
+                            icon = Icons.Outlined.Download,
+                            onClick = {
+                                val chooser = JFileChooser().apply {
+                                    selectedFile = File("loypos-accounting-statement.txt")
+                                    fileFilter = FileNameExtensionFilter("Accounting Report (*.txt, *.pdf)", "txt", "pdf")
+                                }
+                                if (chooser.showSaveDialog(null) == JFileChooser.APPROVE_OPTION) {
+                                    repository.exportRentalHistoryReportPdf(chooser.selectedFile)
+                                    onToast("Exported accounting statement to ${chooser.selectedFile.name}")
+                                }
+                            },
                         )
                     }
                     DesktopSegmentedControl(

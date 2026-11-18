@@ -43,6 +43,7 @@ import com.loypos.app.data.local.CategoryEntity
 import com.loypos.app.data.local.CustomerEntity
 import com.loypos.app.data.local.DailyRevenuePoint
 import com.loypos.app.data.local.DamageReportEntity
+import com.loypos.app.data.local.MaintenanceScheduleEntity
 import com.loypos.app.data.local.DaySalesSummary
 import com.loypos.app.data.local.DbStats
 import com.loypos.app.data.local.EquipmentScanLogEntity
@@ -97,7 +98,11 @@ data class LoyPosDataState(
     val agreementTemplates: List<AgreementTemplateEntity> = emptyList(),
     val eventKits: List<EventKitWithItems> = emptyList(),
     val damageReports: List<DamageReportEntity> = emptyList(),
-)
+    val maintenanceSchedules: List<MaintenanceScheduleEntity> = emptyList(),
+) {
+    fun itemRentalCount(itemId: String): Int =
+        receipts.count { it.receipt.isCompleted && it.lines.any { l -> l.itemId == itemId } }
+}
 
 data class UiSessionState(
     val authStage: AuthStage = AuthStage.SPLASH,
@@ -263,13 +268,11 @@ class LoyPosViewModel(application: Application) : AndroidViewModel(application) 
         )
 
     private val trackingDataFlow = combine(
-        repo.equipmentUnitsFlow,
-        repo.equipmentScanLogsFlow,
-        repo.agreementTemplatesFlow,
-        repo.eventKitsFlow,
-        repo.damageReportsFlow,
-    ) { units, scanLogs, templates, kits, damages ->
-        TrackingBundle(units, scanLogs, templates, kits, damages)
+        combine(repo.equipmentUnitsFlow, repo.equipmentScanLogsFlow) { u, s -> u to s },
+        combine(repo.agreementTemplatesFlow, repo.eventKitsFlow) { t, k -> t to k },
+        combine(repo.damageReportsFlow, repo.maintenanceSchedulesFlow) { d, m -> d to m },
+    ) { (units, scanLogs), (templates, kits), (damages, maintenance) ->
+        TrackingBundle(units, scanLogs, templates, kits, damages, maintenance)
     }
 
     val dataState: StateFlow<LoyPosDataState> = combine(
@@ -292,6 +295,7 @@ class LoyPosViewModel(application: Application) : AndroidViewModel(application) 
             agreementTemplates = tracking.templates,
             eventKits = tracking.kits,
             damageReports = tracking.damages,
+            maintenanceSchedules = tracking.maintenance,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -305,6 +309,7 @@ class LoyPosViewModel(application: Application) : AndroidViewModel(application) 
         val templates: List<AgreementTemplateEntity>,
         val kits: List<EventKitWithItems>,
         val damages: List<DamageReportEntity>,
+        val maintenance: List<MaintenanceScheduleEntity>,
     )
 
     init {
@@ -1798,6 +1803,91 @@ class LoyPosViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             repo.deleteDamageReport(report.id, report.photoPathList())
             showMessage("Damage report deleted")
+        }
+    }
+
+    // --- Equipment Maintenance Schedules ---
+    fun saveMaintenanceSchedule(
+        itemId: String,
+        itemName: String,
+        serviceTitle: String,
+        intervalDays: Int,
+        intervalRentals: Int,
+        priority: String,
+        technicianName: String,
+        notes: String,
+        id: String? = null,
+        onDone: ((String?) -> Unit)? = null,
+    ) {
+        val cleanTitle = serviceTitle.trim()
+        if (cleanTitle.isEmpty()) {
+            onDone?.invoke("Service title is required")
+            return
+        }
+        val now = nowMs()
+        val scheduleId = id ?: newId()
+        val nextDue = now + intervalDays.toLong().coerceAtLeast(1L) * 86_400_000L
+        val schedule = MaintenanceScheduleEntity(
+            id = scheduleId,
+            itemId = itemId,
+            itemName = itemName,
+            serviceTitle = cleanTitle,
+            intervalDays = intervalDays.coerceAtLeast(1),
+            intervalRentals = intervalRentals.coerceAtLeast(1),
+            lastServicedMs = if (id != null) now else 0L,
+            nextDueMs = nextDue,
+            status = MaintenanceScheduleEntity.STATUS_SCHEDULED,
+            priority = priority,
+            technicianName = technicianName.trim().ifEmpty { "Depot Technician" },
+            notes = notes.trim(),
+            createdAt = now,
+        )
+        viewModelScope.launch {
+            repo.saveMaintenanceSchedule(schedule)
+            showMessage("Maintenance schedule saved for $itemName")
+            onDone?.invoke(null)
+        }
+    }
+
+    fun completeMaintenance(id: String) {
+        viewModelScope.launch {
+            repo.completeMaintenance(id)
+            showMessage("Service marked completed and next cycle scheduled")
+        }
+    }
+
+    fun deleteMaintenanceSchedule(id: String) {
+        viewModelScope.launch {
+            repo.deleteMaintenanceSchedule(id)
+            showMessage("Maintenance schedule deleted")
+        }
+    }
+
+    fun exportRentalHistoryCsv(context: android.content.Context) {
+        viewModelScope.launch {
+            try {
+                com.loypos.app.core.RentalHistoryExporter.writeAndShareCsv(
+                    context = context,
+                    receipts = dataState.value.receipts,
+                    settings = dataState.value.settings,
+                )
+            } catch (e: Exception) {
+                showMessage("Failed to export CSV: ${e.message}")
+            }
+        }
+    }
+
+    fun exportRentalHistoryPdf(context: android.content.Context) {
+        viewModelScope.launch {
+            try {
+                com.loypos.app.core.RentalHistoryExporter.writeAndSharePdf(
+                    context = context,
+                    receipts = dataState.value.receipts,
+                    settings = dataState.value.settings,
+                )
+            } catch (e: Exception) {
+                showMessage("Failed to export PDF: ${e.message}")
+            }
         }
     }
 }

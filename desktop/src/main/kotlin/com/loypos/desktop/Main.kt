@@ -25,6 +25,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ReceiptLong
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.CheckCircleOutline
 import androidx.compose.material.icons.outlined.Dashboard
@@ -76,6 +77,7 @@ import com.loypos.desktop.ui.DesktopBadge
 import com.loypos.desktop.ui.DesktopDamageReportsView
 import com.loypos.desktop.ui.DesktopDashboardView
 import com.loypos.desktop.ui.DesktopEventKitsView
+import com.loypos.desktop.ui.DesktopMaintenanceView
 import com.loypos.desktop.ui.DesktopPrimaryButton
 import com.loypos.desktop.ui.DesktopSettingsView
 import com.loypos.desktop.ui.EquipmentView
@@ -130,6 +132,7 @@ private enum class DesktopTab(
     EVENT_KITS("Event Kits", "Pre-bundled equipment packages & discounts", Icons.Outlined.Layers, DesktopTabGroup.FLEET),
     QR_TRACKING("QR Track", "Serialized unit tags, scanner & printable labels", Icons.Outlined.QrCodeScanner, DesktopTabGroup.FLEET),
     DAMAGE_LOG("Damage Log", "Return inspection notes, photos & repair queue", Icons.Outlined.ReportProblem, DesktopTabGroup.FLEET),
+    MAINTENANCE("Maintenance", "Routine service tracking for sound & light rigs", Icons.Outlined.Build, DesktopTabGroup.FLEET),
     AGREEMENTS("Contracts", "Digital rental agreement templates & exports", Icons.Outlined.Description, DesktopTabGroup.FLEET),
     CLIENTS("Clients", "Event organizers, venues & booking history", Icons.Outlined.PeopleOutline, DesktopTabGroup.SYSTEM),
     SETTINGS("Settings", "Company profile, JSON/CSV backups & cloud sync", Icons.Outlined.Settings, DesktopTabGroup.SYSTEM),
@@ -172,6 +175,9 @@ private fun DesktopShell(repository: DesktopRepository) {
     }
     val openDamageCount = remember(snapshot.damageReports) {
         snapshot.damageReports.count { it.status != "resolved" }
+    }
+    val dueMaintenanceCount = remember(snapshot.maintenanceSchedules, now) {
+        snapshot.maintenanceSchedules.count { it.isDue(now) }
     }
 
     fun showToast(msg: String) {
@@ -267,11 +273,13 @@ private fun DesktopShell(repository: DesktopRepository) {
                                 }
                                 DesktopTab.EQUIPMENT -> if (lowFleetCount > 0) "$lowFleetCount" else null
                                 DesktopTab.DAMAGE_LOG -> if (openDamageCount > 0) "$openDamageCount" else null
+                                DesktopTab.MAINTENANCE -> if (dueMaintenanceCount > 0) "$dueMaintenanceCount due" else null
                                 else -> null
                             }
                             val badgeWarning = (tab == DesktopTab.RENTALS && dueWithin24h.isNotEmpty()) ||
                                 tab == DesktopTab.EQUIPMENT ||
-                                tab == DesktopTab.DAMAGE_LOG
+                                tab == DesktopTab.DAMAGE_LOG ||
+                                tab == DesktopTab.MAINTENANCE
 
                             SidebarNavRow(
                                 tab = tab,
@@ -502,6 +510,11 @@ private fun DesktopShell(repository: DesktopRepository) {
                             snapshot = snapshot,
                             prefillOrder = pendingDamageOrder,
                             onConsumePrefillOrder = { pendingDamageOrder = null },
+                            onToast = ::showToast,
+                        )
+                        DesktopTab.MAINTENANCE -> DesktopMaintenanceView(
+                            repository = repository,
+                            snapshot = snapshot,
                             onToast = ::showToast,
                         )
                         DesktopTab.QR_TRACKING -> QrTrackingView(

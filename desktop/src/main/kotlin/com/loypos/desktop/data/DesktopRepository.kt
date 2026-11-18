@@ -22,6 +22,7 @@ import com.loypos.desktop.model.DesktopEquipmentUnit
 import com.loypos.desktop.model.DesktopEventKit
 import com.loypos.desktop.model.DesktopEventKitItem
 import com.loypos.desktop.model.DesktopHeldQuote
+import com.loypos.desktop.model.DesktopMaintenanceSchedule
 import com.loypos.desktop.model.DesktopMonthlyIncomePoint
 import com.loypos.desktop.model.DesktopRentalLine
 import com.loypos.desktop.model.DesktopRentalOrder
@@ -82,6 +83,9 @@ class DesktopRepository(
                         eventKits = parsed.eventKits.ifEmpty {
                             DemoRentalCatalog.buildDefaultEventKits(now)
                         },
+                        maintenanceSchedules = parsed.maintenanceSchedules.ifEmpty {
+                            DemoRentalCatalog.buildDefaultMaintenanceSchedules(now)
+                        },
                     )
                     if (hydrated != parsed) saveSnapshot(hydrated)
                     return hydrated
@@ -126,6 +130,7 @@ class DesktopRepository(
             agreementTemplates = DesktopRentalAgreementEngine.defaultTemplates(now),
             eventKits = DemoRentalCatalog.buildDefaultEventKits(now),
             damageReports = emptyList(),
+            maintenanceSchedules = DemoRentalCatalog.buildDefaultMaintenanceSchedules(now),
         )
     }
 
@@ -1047,5 +1052,125 @@ class DesktopRepository(
                 )
             }
             .sortedByDescending { it.utilizationPercent }
+    }
+
+    fun saveMaintenanceSchedule(schedule: DesktopMaintenanceSchedule) {
+        mutate { state ->
+            val existing = state.maintenanceSchedules.toMutableList()
+            val idx = existing.indexOfFirst { it.id == schedule.id }
+            val now = nowMs()
+            val toSave = if (schedule.createdAt == 0L) schedule.copy(createdAt = now) else schedule
+            if (idx >= 0) {
+                existing[idx] = toSave
+            } else {
+                existing.add(0, toSave)
+            }
+            state.copy(maintenanceSchedules = existing)
+        }
+    }
+
+    fun deleteMaintenanceSchedule(id: String) {
+        mutate { state ->
+            state.copy(maintenanceSchedules = state.maintenanceSchedules.filterNot { it.id == id })
+        }
+    }
+
+    fun updateMaintenanceStatus(id: String, status: String) {
+        mutate { state ->
+            val list = state.maintenanceSchedules.map { m ->
+                if (m.id == id) m.copy(status = status) else m
+            }
+            state.copy(maintenanceSchedules = list)
+        }
+    }
+
+    fun completeMaintenance(id: String) {
+        mutate { state ->
+            val now = nowMs()
+            val list = state.maintenanceSchedules.map { m ->
+                if (m.id == id) {
+                    val nextDue = now + (m.intervalDays.coerceAtLeast(1) * 86_400_000L)
+                    m.copy(lastServicedMs = now, nextDueMs = nextDue, status = "completed")
+                } else m
+            }
+            state.copy(maintenanceSchedules = list)
+        }
+    }
+
+    fun getItemRentalCount(itemId: String): Int {
+        var count = 0
+        _state.value.orders.filter { it.isCompleted }.forEach { ord ->
+            ord.lines.forEach { l ->
+                if (l.itemId == itemId) {
+                    count += l.qty.toInt().coerceAtLeast(1)
+                }
+            }
+        }
+        return count
+    }
+
+    fun exportRentalHistoryCsv(targetFile: File): Int {
+        val snapshot = _state.value
+        val sb = StringBuilder()
+        sb.append("OrderNumber,CreatedAt,ClientName,EventName,EventVenue,RentalDays,RentalStart,RentalEnd,Status,PaymentType,TotalCents,DepositCents,LineItemName,LineQty,LinePriceCents,LineTotalCents\n")
+        var rowCount = 0
+        snapshot.orders.forEach { ord ->
+            val dateStr = formatDateTime(ord.createdAt)
+            val startStr = formatShortDate(ord.rentalStartMs)
+            val endStr = formatShortDate(ord.rentalEndMs)
+            val client = (ord.customerName ?: "Walk-in").replace(",", " ")
+            val event = ord.eventName.replace(",", " ")
+            val venue = ord.eventVenue.replace(",", " ")
+            val status = if (ord.isReturned) "Returned" else if (ord.isRentalOut) "Active Out" else if (!ord.isCompleted) "Refunded" else "Completed"
+            if (ord.lines.isEmpty()) {
+                sb.append("#${ord.number},\"$dateStr\",\"$client\",\"$event\",\"$venue\",${ord.rentalDays},\"$startStr\",\"$endStr\",$status,${ord.paymentType},${ord.totalCents},${ord.depositCents},-,0,0,0\n")
+                rowCount++
+            } else {
+                ord.lines.forEach { line ->
+                    val lineName = line.name.replace(",", " ")
+                    sb.append("#${ord.number},\"$dateStr\",\"$client\",\"$event\",\"$venue\",${ord.rentalDays},\"$startStr\",\"$endStr\",$status,${ord.paymentType},${ord.totalCents},${ord.depositCents},\"$lineName\",${line.qty},${line.priceCents},${line.lineTotalCents}\n")
+                    rowCount++
+                }
+            }
+        }
+        targetFile.writeText(sb.toString(), Charsets.UTF_8)
+        return rowCount
+    }
+
+    fun exportRentalHistoryReportPdf(targetFile: File): Boolean {
+        val snapshot = _state.value
+        val sym = snapshot.settings.currencySymbol
+        val completed = snapshot.orders.filter { it.isCompleted }
+        val totalRevenue = completed.sumOf { it.totalCents }
+        val totalDeposits = completed.sumOf { it.depositCents }
+        val sb = StringBuilder()
+        sb.append("========================================================\n")
+        sb.append("         EVENTGEAR RENTALS — ACCOUNTING STATEMENT       \n")
+        sb.append("         Rental History & Revenue Record-Keeping         \n")
+        sb.append("========================================================\n\n")
+        sb.append("Generated On: ${formatDateTime(nowMs())}\n")
+        sb.append("Company Name: ${snapshot.settings.storeName}\n")
+        sb.append("Total Completed Orders: ${completed.size}\n")
+        sb.append("Total Rental Revenue: ${formatCents(totalRevenue, sym)}\n")
+        sb.append("Total Security Deposits Held: ${formatCents(totalDeposits, sym)}\n")
+        sb.append("Active Fleet Inventory SKUs: ${snapshot.items.size}\n")
+        sb.append("Open Maintenance Tasks: ${snapshot.maintenanceSchedules.count { !it.isDue(nowMs()) && it.status != "completed" }}\n\n")
+        sb.append("--------------------------------------------------------\n")
+        sb.append(" ITEMIZED RENTAL HISTORY LOGS\n")
+        sb.append("--------------------------------------------------------\n")
+        completed.forEach { ord ->
+            sb.append("Order #${ord.number.toString().padStart(4, '0')} | ${formatDateTime(ord.createdAt)} | Client: ${ord.customerName ?: "Walk-in"}\n")
+            sb.append("  Event: ${ord.eventName.ifBlank { "General Event" }} (${formatShortDate(ord.rentalStartMs)} → ${formatShortDate(ord.rentalEndMs)}, ${ord.rentalDays}d)\n")
+            sb.append("  Status: ${if (ord.isReturned) "Returned" else "Active Out"} | Total: ${formatCents(ord.totalCents, sym)}\n")
+            ord.lines.forEach { l ->
+                sb.append("    • ${formatQty(l.qty)} × ${l.name} @ ${formatCents(l.priceCents, sym)}/d = ${formatCents(l.lineTotalCents, sym)}\n")
+            }
+            sb.append("\n")
+        }
+        sb.append("========================================================\n")
+        sb.append(" End of Accounting Statement — LoyPOS Rental Engine       \n")
+        sb.append("========================================================\n")
+        targetFile.writeText(sb.toString(), Charsets.UTF_8)
+        return true
     }
 }

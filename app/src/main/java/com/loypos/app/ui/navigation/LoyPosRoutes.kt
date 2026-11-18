@@ -87,3 +87,7 @@ data class DamageReportsRoute(
     val initialUnitCode: String? = null,
 )
 
+@Serializable
+data class MaintenanceRoute(val initialItemId: String? = null)
+
+

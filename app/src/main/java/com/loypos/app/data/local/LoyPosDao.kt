@@ -527,6 +527,31 @@ interface LoyPosDao {
     @Query("DELETE FROM damage_reports WHERE id = :id")
     suspend fun deleteDamageReportById(id: String)
 
+    // Equipment Maintenance Schedules
+    @Query("SELECT * FROM maintenance_schedules ORDER BY next_due_ms ASC, created_at DESC")
+    fun observeMaintenanceSchedules(): Flow<List<MaintenanceScheduleEntity>>
+
+    @Query("SELECT * FROM maintenance_schedules ORDER BY next_due_ms ASC, created_at DESC")
+    suspend fun getAllMaintenanceSchedules(): List<MaintenanceScheduleEntity>
+
+    @Query("SELECT * FROM maintenance_schedules WHERE item_id = :itemId ORDER BY next_due_ms ASC")
+    suspend fun getMaintenanceSchedulesForItem(itemId: String): List<MaintenanceScheduleEntity>
+
+    @Query("SELECT COUNT(*) FROM maintenance_schedules")
+    suspend fun countMaintenanceSchedules(): Int
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertMaintenanceSchedule(schedule: MaintenanceScheduleEntity)
+
+    @Query("UPDATE maintenance_schedules SET status = :status, last_serviced_ms = :lastServicedMs, next_due_ms = :nextDueMs WHERE id = :id")
+    suspend fun updateMaintenanceScheduleStatus(id: String, status: String, lastServicedMs: Long, nextDueMs: Long)
+
+    @Query("DELETE FROM maintenance_schedules WHERE id = :id")
+    suspend fun deleteMaintenanceScheduleById(id: String)
+
+    @Query("SELECT COUNT(DISTINCT sales.id) FROM sale_items JOIN sales ON sale_items.receipt_id = sales.id WHERE sale_items.item_id = :itemId AND sales.status = 'completed'")
+    suspend fun getRentalCountForItem(itemId: String): Int
+
     // Counts for DB Health
     @Query("SELECT COUNT(*) FROM branches WHERE archived = 0") suspend fun countBranches(): Int
     @Query("SELECT COUNT(*) FROM categories") suspend fun countCategories(): Int

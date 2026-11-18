@@ -31,6 +31,7 @@ import com.loypos.app.data.local.CustomerEntity
 import com.loypos.app.data.local.DailyRevenuePoint
 import com.loypos.app.core.ItemPhotos
 import com.loypos.app.data.local.DamageReportEntity
+import com.loypos.app.data.local.MaintenanceScheduleEntity
 import com.loypos.app.data.local.DbStats
 import com.loypos.app.data.local.EquipmentScanLogEntity
 import com.loypos.app.data.local.EquipmentUnitEntity
@@ -141,6 +142,7 @@ class LoyPosRepository(private val context: Context) {
     val agreementTemplatesFlow: Flow<List<AgreementTemplateEntity>> = dao.observeAgreementTemplates()
     val eventKitsFlow: Flow<List<EventKitWithItems>> = dao.observeEventKitsWithItems()
     val damageReportsFlow: Flow<List<DamageReportEntity>> = dao.observeDamageReports()
+    val maintenanceSchedulesFlow: Flow<List<MaintenanceScheduleEntity>> = dao.observeMaintenanceSchedules()
 
     val receiptsWithLinesFlow: Flow<List<ReceiptWithLines>> = saleDao.observeSalesWithItems()
 
@@ -2248,4 +2250,27 @@ class LoyPosRepository(private val context: Context) {
         }
         applied
     }
+
+    suspend fun saveMaintenanceSchedule(schedule: MaintenanceScheduleEntity) {
+        dao.upsertMaintenanceSchedule(schedule)
+    }
+
+    suspend fun deleteMaintenanceSchedule(id: String) {
+        dao.deleteMaintenanceScheduleById(id)
+    }
+
+    suspend fun updateMaintenanceStatus(id: String, status: String, lastServicedMs: Long, nextDueMs: Long) {
+        dao.updateMaintenanceScheduleStatus(id, status, lastServicedMs, nextDueMs)
+    }
+
+    suspend fun completeMaintenance(id: String) {
+        val list = dao.getAllMaintenanceSchedules()
+        val item = list.firstOrNull { it.id == id } ?: return
+        val now = nowMs()
+        val nextDue = now + item.intervalDays.toLong().coerceAtLeast(1L) * 86_400_000L
+        dao.updateMaintenanceScheduleStatus(id, MaintenanceScheduleEntity.STATUS_COMPLETED, now, nextDue)
+    }
+
+    suspend fun getItemRentalCount(itemId: String): Int = dao.getRentalCountForItem(itemId)
 }
+

@@ -36,8 +36,9 @@ import kotlinx.coroutines.launch
         EventKitEntity::class,
         EventKitItemEntity::class,
         DamageReportEntity::class,
+        MaintenanceScheduleEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = false,
 )
 abstract class LoyPosDatabase : RoomDatabase() {
@@ -226,6 +227,32 @@ abstract class LoyPosDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS maintenance_schedules (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        item_id TEXT NOT NULL,
+                        item_name TEXT NOT NULL,
+                        service_title TEXT NOT NULL,
+                        interval_days INTEGER NOT NULL,
+                        interval_rentals INTEGER NOT NULL,
+                        last_serviced_ms INTEGER NOT NULL,
+                        next_due_ms INTEGER NOT NULL,
+                        status TEXT NOT NULL,
+                        priority TEXT NOT NULL,
+                        technician_name TEXT NOT NULL,
+                        notes TEXT NOT NULL,
+                        created_at INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_maintenance_schedules_item_id ON maintenance_schedules(item_id)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_maintenance_schedules_created_at ON maintenance_schedules(created_at)")
+            }
+        }
+
         fun getInstance(context: Context): LoyPosDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -233,7 +260,7 @@ abstract class LoyPosDatabase : RoomDatabase() {
                     LoyPosDatabase::class.java,
                     DB_NAME,
                 )
-                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
@@ -289,6 +316,11 @@ abstract class LoyPosDatabase : RoomDatabase() {
                 DemoCatalog.defaultEventKits(now).forEach { entry ->
                     dao.upsertEventKit(entry.kit)
                     dao.insertEventKitItems(entry.items)
+                }
+            }
+            if (dao.countMaintenanceSchedules() == 0) {
+                DemoCatalog.defaultMaintenanceSchedules(now).forEach { schedule ->
+                    dao.upsertMaintenanceSchedule(schedule)
                 }
             }
             if (dao.getAllEquipmentUnits().isEmpty()) {
