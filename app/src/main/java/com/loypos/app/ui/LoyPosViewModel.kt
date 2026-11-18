@@ -44,7 +44,9 @@ import com.loypos.app.data.local.DaySalesSummary
 import com.loypos.app.data.local.DbStats
 import com.loypos.app.data.local.EquipmentScanLogEntity
 import com.loypos.app.data.local.EquipmentUnitEntity
+import com.loypos.app.data.local.EquipmentUtilizationPoint
 import com.loypos.app.data.local.ItemEntity
+import com.loypos.app.data.local.MonthlyIncomePoint
 import com.loypos.app.data.local.ReceiptEntity
 import com.loypos.app.data.local.ReceiptWithLines
 import com.loypos.app.data.local.SettingsModel
@@ -206,6 +208,33 @@ class LoyPosViewModel(application: Application) : AndroidViewModel(application) 
     fun setBackOfficeTrendDays(days: Int) {
         _backOfficeTrendDays.value = days.coerceIn(7, 30)
     }
+
+    private val _monthlyIncomeMonths = MutableStateFlow(6)
+    val monthlyIncomeMonths: StateFlow<Int> = _monthlyIncomeMonths.asStateFlow()
+
+    fun setMonthlyIncomeMonths(months: Int) {
+        _monthlyIncomeMonths.value = if (months >= 12) 12 else 6
+    }
+
+    fun computeMonthlyRentalIncome(
+        data: LoyPosDataState,
+        months: Int,
+        branchId: String?,
+    ): List<MonthlyIncomePoint> = repo.computeMonthlyRentalIncome(data.receipts, months, branchId)
+
+    fun computeEquipmentUtilization(
+        data: LoyPosDataState,
+        branchId: String?,
+        byCategory: Boolean,
+        liveOutMode: Boolean,
+    ): List<EquipmentUtilizationPoint> = repo.computeEquipmentUtilization(
+        items = data.items,
+        categories = data.categories,
+        receipts = data.receipts,
+        branchId = branchId,
+        byCategory = byCategory,
+        liveOutMode = liveOutMode,
+    )
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val backOfficeRevenueTrend: StateFlow<List<DailyRevenuePoint>> = combine(
@@ -1037,6 +1066,23 @@ class LoyPosViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun updateItemSafetyThreshold(itemId: String, safetyThreshold: Double?) {
+        viewModelScope.launch {
+            repo.updateItemSafetyThreshold(itemId, safetyThreshold)
+            if (dataState.value.settings.lowStockAlertsEnabled) {
+                LowStockWorkScheduler.runImmediateCheck(appContext)
+            }
+            val itemName = dataState.value.items.firstOrNull { it.id == itemId }?.name ?: "Equipment"
+            showMessage(
+                if (safetyThreshold == null) {
+                    "$itemName now uses global safety threshold"
+                } else {
+                    "$itemName safety min set to ${formatQty(safetyThreshold)} units"
+                }
+            )
+        }
+    }
+
     fun updateLowStockAlertSettings(
         enabled: Boolean,
         threshold: Double,
@@ -1049,10 +1095,10 @@ class LoyPosViewModel(application: Application) : AndroidViewModel(application) 
             if (enabled) {
                 LowStockWorkScheduler.schedulePeriodicCheck(appContext, cleanInterval)
                 LowStockWorkScheduler.runImmediateCheck(appContext, forceNotify = true)
-                showMessage("WorkManager alerts active (every ${cleanInterval}m, < ${formatQty(cleanThreshold)})")
+                showMessage("WorkManager alerts active (every ${cleanInterval}m, default < ${formatQty(cleanThreshold)})")
             } else {
                 LowStockWorkScheduler.cancelPeriodicCheck(appContext)
-                showMessage("Low-stock alerts disabled")
+                showMessage("Equipment safety alerts disabled")
             }
         }
     }
@@ -1063,10 +1109,11 @@ class LoyPosViewModel(application: Application) : AndroidViewModel(application) 
             val lowItems = repo.getLowStockProducts(settings.lowStockThreshold)
             LowStockWorkScheduler.runImmediateCheck(appContext, forceNotify = true)
             if (lowItems.isEmpty()) {
-                showMessage("All tracked items are at or above ${formatQty(settings.lowStockThreshold)}")
+                showMessage("All tracked equipment meets defined safety thresholds")
             } else {
-                val msg = "${lowItems.size} ${if (lowItems.size == 1) "item" else "items"} below ${formatQty(settings.lowStockThreshold)}"
-                showMessage(msg)
+                val names = lowItems.take(2).joinToString(", ") { it.name }
+                val extra = if (lowItems.size > 2) " +${lowItems.size - 2} more" else ""
+                showMessage("${lowItems.size} ${if (lowItems.size == 1) "item" else "items"} below safety threshold: $names$extra")
             }
         }
     }
@@ -1448,6 +1495,9 @@ class LoyPosViewModel(application: Application) : AndroidViewModel(application) 
                     "check_in" -> "Checked in"
                     "maintenance" -> "Flagged for maintenance"
                     else -> "Inspected"
+                }
+                if ((action == "check_out" || action == "maintenance") && dataState.value.settings.lowStockAlertsEnabled) {
+                    LowStockWorkScheduler.runImmediateCheck(appContext)
                 }
                 showMessage("$verb ${updated.unitCode} (${updated.itemName})")
                 onDone(updated)

@@ -317,7 +317,7 @@ fun SettingsScreen(
                     SettingsNavRow(
                         icon = Icons.Outlined.Inventory2,
                         title = "Equipment & Fleet Stock",
-                        subtitle = "${data.items.count { it.trackStock && it.stock < data.settings.lowStockThreshold }} below threshold (< ${formatQty(data.settings.lowStockThreshold)})",
+                        subtitle = "${data.items.count { it.isBelowSafetyThreshold(data.settings.lowStockThreshold) }} below safety threshold (default < ${formatQty(data.settings.lowStockThreshold)})",
                         onClick = onNavigateToStock,
                         modifier = Modifier.testTag("nav_backoffice_stock"),
                     )

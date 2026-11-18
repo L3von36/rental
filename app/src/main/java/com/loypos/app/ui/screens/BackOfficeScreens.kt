@@ -150,10 +150,10 @@ fun StockScreen(
     }
     val outCount = remember(allTracked) { allTracked.count { it.stock <= 0.0 } }
     val lowOnlyCount = remember(allTracked, threshold) {
-        allTracked.count { it.stock > 0.0 && it.stock < threshold }
+        allTracked.count { it.stock > 0.0 && it.isBelowSafetyThreshold(threshold) }
     }
     val attentionItems = remember(allTracked, threshold) {
-        allTracked.filter { it.stock < threshold }
+        allTracked.filter { it.isBelowSafetyThreshold(threshold) }
     }
 
     val trackedItems = remember(allTracked, search, filterIdx, threshold) {
@@ -164,7 +164,7 @@ fun StockScreen(
                     item.name.lowercase().contains(q) ||
                     item.sku.lowercase().contains(q)
                 val matchesFilter = when (filterIdx) {
-                    1 -> item.stock > 0.0 && item.stock < threshold
+                    1 -> item.stock > 0.0 && item.isBelowSafetyThreshold(threshold)
                     2 -> item.stock <= 0.0
                     else -> true
                 }
@@ -173,10 +173,10 @@ fun StockScreen(
             .sortedWith(compareBy<ItemEntity> {
                 when {
                     it.stock <= 0.0 -> 0
-                    it.stock < threshold -> 1
+                    it.isBelowSafetyThreshold(threshold) -> 1
                     else -> 2
                 }
-            }.thenBy { it.stock }.thenBy { it.name })
+            }.thenBy { it.stock - it.effectiveSafetyThreshold(threshold) }.thenBy { it.name })
     }
     val itemNameById = remember(data.items) { data.items.associate { it.id to it.name } }
 
@@ -362,16 +362,17 @@ fun StockScreen(
                                 )
                                 StockDotBadge(item = item, threshold = threshold)
                             }
+                            val isBelow = item.isBelowSafetyThreshold(threshold)
                             PillBadge(
                                 text = formatQty(item.stock),
                                 backgroundColor = when {
                                     item.stock <= 0.0 -> Color(0xFFFFEBEE)
-                                    item.stock < threshold -> Color(0xFFFFF3E0)
+                                    isBelow -> Color(0xFFFFF3E0)
                                     else -> LoyGreenLight
                                 },
                                 textColor = when {
                                     item.stock <= 0.0 -> LoyError
-                                    item.stock < threshold -> LoyWarning
+                                    isBelow -> LoyWarning
                                     else -> LoyGreen
                                 },
                             )

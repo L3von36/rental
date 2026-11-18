@@ -82,6 +82,9 @@ import java.io.File
 import javax.swing.JFileChooser
 import javax.swing.filechooser.FileNameExtensionFilter
 
+import androidx.compose.material3.LinearProgressIndicator
+import kotlin.math.roundToInt
+
 @Composable
 fun DesktopDashboardView(
     snapshot: DesktopStoreSnapshot,
@@ -100,7 +103,37 @@ fun DesktopDashboardView(
     val overdueCount = completed.count { it.isOverdue(now) }
     val lowThreshold = snapshot.settings.lowStockThreshold
     val lowOrOutItems = remember(snapshot.items, lowThreshold) {
-        snapshot.items.filter { it.trackStock && it.stock < lowThreshold }.sortedBy { it.stock }
+        snapshot.items.filter { it.isBelowSafetyThreshold(lowThreshold) }
+            .sortedBy { it.stock - it.effectiveSafetyThreshold(lowThreshold) }
+    }
+    val monthlyPoints = remember(snapshot.orders) {
+        val zone = java.time.ZoneId.systemDefault()
+        val nowYm = java.time.YearMonth.now(zone)
+        val grouped = completed.groupBy {
+            java.time.YearMonth.from(java.time.Instant.ofEpochMilli(it.createdAt).atZone(zone))
+        }
+        (5 downTo 0).map { offset ->
+            val ym = nowYm.minusMonths(offset.toLong())
+            val orders = grouped[ym].orEmpty()
+            Triple(
+                ym.month.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.getDefault()),
+                orders.sumOf { it.totalCents },
+                orders.size,
+            )
+        }
+    }
+    val utilizationRows = remember(snapshot.items, snapshot.categories, completed) {
+        val outById = mutableMapOf<String, Double>()
+        completed.filter { it.isRentalOut }.forEach { o ->
+            o.lines.forEach { l -> l.itemId?.let { outById[it] = (outById[it] ?: 0.0) + l.qty } }
+        }
+        val catNames = snapshot.categories.associate { it.id to it.name }
+        snapshot.items.filter { it.trackStock }.groupBy { it.categoryId ?: "other" }.map { (catId, group) ->
+            val out = group.sumOf { outById[it.id] ?: 0.0 }
+            val cap = group.sumOf { (it.stock + (outById[it.id] ?: 0.0)).coerceAtLeast(0.0) }
+            val pct = if (cap <= 0.0) 0.0 else (out / cap * 100.0).coerceIn(0.0, 100.0)
+            Triple(catNames[catId] ?: "Other", pct, "${formatQty(out)}/${formatQty(cap)}")
+        }.sortedByDescending { it.second }
     }
 
     Column(
@@ -186,12 +219,83 @@ fun DesktopDashboardView(
                                     Text("SKU ${item.sku} · ${formatCents(item.priceCents, sym)}/d", style = MaterialTheme.typography.bodySmall, color = LoyTextSecondary)
                                 }
                                 Text(
-                                    text = if (item.stock <= 0.0) "Rented out" else "${formatQty(item.stock)} avail",
+                                    text = if (item.stock <= 0.0) "Rented out" else "${formatQty(item.stock)} / min ${formatQty(item.effectiveSafetyThreshold(lowThreshold))}",
                                     color = if (item.stock <= 0.0) LoyError else LoyWarning,
                                     fontWeight = FontWeight.Bold,
                                     style = MaterialTheme.typography.bodySmall,
                                 )
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Monthly Rental Income & Equipment Utilization Bars
+        Row(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxWidth()) {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = LoySurface,
+                border = BorderStroke(1.dp, LoyBorder),
+                modifier = Modifier.weight(1f),
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Monthly Rental Income (6M)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    val maxCents = monthlyPoints.maxOfOrNull { it.second }?.coerceAtLeast(1L) ?: 1L
+                    Row(
+                        modifier = Modifier.fillMaxWidth().height(130.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.Bottom,
+                    ) {
+                        monthlyPoints.forEach { (label, cents, count) ->
+                            val frac = (cents.toFloat() / maxCents.toFloat()).coerceIn(0.05f, 1f)
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Bottom,
+                            ) {
+                                Text(
+                                    if (cents > 0L) formatCents(cents, sym) else "$count",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = LoyTextSecondary,
+                                    maxLines = 1,
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth(0.65f)
+                                        .height((90f * frac).dp)
+                                        .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
+                                        .background(if (cents > 0L) LoyGreenDark else LoyBorder),
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(label, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                }
+            }
+
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = LoySurface,
+                border = BorderStroke(1.dp, LoyBorder),
+                modifier = Modifier.weight(1f),
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Equipment Utilization by Category", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    utilizationRows.take(5).forEach { (cat, pct, ratioText) ->
+                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text(cat, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+                                Text("${pct.roundToInt()}% ($ratioText out)", style = MaterialTheme.typography.labelSmall, color = LoyGreenDark, fontWeight = FontWeight.SemiBold)
+                            }
+                            LinearProgressIndicator(
+                                progress = { (pct / 100.0).toFloat().coerceIn(0f, 1f) },
+                                modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(999.dp)),
+                                color = if (pct >= 80.0) LoyWarning else LoyGreenDark,
+                                trackColor = LoyBorder,
+                            )
                         }
                     }
                 }
@@ -234,7 +338,7 @@ fun EquipmentView(
         val q = search.trim().lowercase()
         snapshot.items.filter { item ->
             val mCat = selectedCatId == null || item.categoryId == selectedCatId
-            val mLow = !lowOnly || (item.trackStock && item.stock < threshold)
+            val mLow = !lowOnly || item.isBelowSafetyThreshold(threshold)
             val mQ = q.isEmpty() || item.name.lowercase().contains(q) || item.sku.lowercase().contains(q)
             mCat && mLow && mQ
         }
@@ -314,9 +418,10 @@ fun EquipmentView(
                             IconButton(onClick = { repository.adjustEquipmentStock(item.id, -1.0) }, modifier = Modifier.size(30.dp)) {
                                 Icon(Icons.Outlined.Remove, contentDescription = "Decrease stock", modifier = Modifier.size(16.dp))
                             }
+                            val itemMin = item.effectiveSafetyThreshold(threshold)
                             Text(
-                                text = "${formatQty(item.stock)} avail",
-                                color = if (item.stock <= 0.0) LoyError else if (item.stock < threshold) LoyWarning else LoyTextPrimary,
+                                text = if (item.safetyThreshold != null) "${formatQty(item.stock)} avail (min ${formatQty(itemMin)})" else "${formatQty(item.stock)} avail",
+                                color = if (item.stock <= 0.0) LoyError else if (item.isBelowSafetyThreshold(threshold)) LoyWarning else LoyTextPrimary,
                                 fontWeight = FontWeight.SemiBold,
                                 style = MaterialTheme.typography.bodySmall,
                                 modifier = Modifier.padding(horizontal = 6.dp),
@@ -369,6 +474,7 @@ private fun EquipmentEditDialog(
     var costText by remember { mutableStateOf(if (equipment.costCents == 0L) "" else (equipment.costCents / 100.0).toString()) }
     var sku by remember { mutableStateOf(equipment.sku) }
     var stockText by remember { mutableStateOf(formatQty(equipment.stock)) }
+    var safetyText by remember { mutableStateOf(equipment.safetyThreshold?.let { formatQty(it) } ?: "") }
     var trackStock by remember { mutableStateOf(equipment.trackStock) }
 
     AlertDialog(
@@ -401,6 +507,13 @@ private fun EquipmentEditDialog(
                     OutlinedTextField(value = sku, onValueChange = { sku = it }, label = { Text("SKU") }, singleLine = true, modifier = Modifier.weight(1f))
                     OutlinedTextField(value = stockText, onValueChange = { stockText = it }, label = { Text("Available units") }, singleLine = true, modifier = Modifier.weight(1f))
                 }
+                OutlinedTextField(
+                    value = safetyText,
+                    onValueChange = { safetyText = it },
+                    label = { Text("Safety alert threshold (blank = global ${formatQty(snapshot.settings.lowStockThreshold)})") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Text("Track fleet units")
                     Switch(checked = trackStock, onCheckedChange = { trackStock = it })
@@ -421,6 +534,7 @@ private fun EquipmentEditDialog(
                                 sku = sku.trim(),
                                 trackStock = trackStock,
                                 stock = stockText.toDoubleOrNull()?.coerceAtLeast(0.0) ?: 0.0,
+                                safetyThreshold = if (safetyText.isBlank()) null else safetyText.toDoubleOrNull()?.coerceAtLeast(0.0),
                             )
                         )
                     }

@@ -200,9 +200,10 @@ fun computeEquipmentAvailabilityForRange(
             val totalCap = (item.stock + (currentlyOutByItem[item.id] ?: 0.0)).coerceAtLeast(0.0)
             val reserved = reservedInRangeByItem[item.id] ?: 0.0
             val avail = (totalCap - reserved).coerceAtLeast(0.0)
+            val effectiveLow = item.effectiveSafetyThreshold(lowThreshold)
             val status = when {
                 avail <= 0.0 -> AvailabilityStatus.FULLY_BOOKED
-                avail < lowThreshold || (totalCap > 0.0 && avail / totalCap <= 0.2) -> AvailabilityStatus.LOW
+                avail < effectiveLow || (totalCap > 0.0 && avail / totalCap <= 0.2) -> AvailabilityStatus.LOW
                 else -> AvailabilityStatus.AVAILABLE
             }
             EquipmentDayAvailability(

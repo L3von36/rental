@@ -20,8 +20,15 @@ data class DesktopEquipment(
     val barcode: String = "",
     val trackStock: Boolean = true,
     val stock: Double = 0.0,
+    val safetyThreshold: Double? = null,
     val createdAt: Long = 0L,
-)
+) {
+    fun effectiveSafetyThreshold(globalThreshold: Double): Double =
+        (safetyThreshold ?: globalThreshold).coerceAtLeast(0.0)
+
+    fun isBelowSafetyThreshold(globalThreshold: Double): Boolean =
+        trackStock && stock < effectiveSafetyThreshold(globalThreshold)
+}
 
 @Serializable
 data class DesktopClient(
@@ -222,4 +229,19 @@ data class LoyPosExportV1(
     val version: Int = 1,
     val exportedAt: Long = System.currentTimeMillis(),
     val payload: LoyPosExportPayload,
+)
+
+data class DesktopMonthlyIncomePoint(
+    val yearMonthKey: String,
+    val label: String,
+    val totalCents: Long,
+    val ordersCount: Int,
+)
+
+data class DesktopUtilizationPoint(
+    val id: String,
+    val label: String,
+    val utilizationPercent: Double,
+    val activeOutUnits: Double,
+    val totalCapacityUnits: Double,
 )

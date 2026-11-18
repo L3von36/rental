@@ -112,6 +112,9 @@ object BackupManager {
                         put("archived", if (it.archived) 1 else 0)
                         put("branch_ids", it.branchIds)
                         put("image_path", it.imagePath)
+                        if (it.safetyThreshold != null) {
+                            put("safety_threshold", it.safetyThreshold)
+                        }
                         if (it.hasPhoto) {
                             ItemPhotos.readBase64(it.imagePath)?.let { b64 -> put("photo_b64", b64) }
                         }
@@ -347,6 +350,11 @@ object BackupManager {
                 archived = o.optInt("archived", 0) == 1 || o.optBoolean("archived", false),
                 branchIds = o.optString("branch_ids", ""),
                 imagePath = photoPath,
+                safetyThreshold = if (o.has("safety_threshold") && !o.isNull("safety_threshold")) {
+                    o.optDouble("safety_threshold").coerceAtLeast(0.0)
+                } else {
+                    null
+                },
                 updatedAt = nowMs(),
             )
         }

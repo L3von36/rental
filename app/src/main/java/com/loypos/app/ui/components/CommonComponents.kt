@@ -96,6 +96,13 @@ import com.loypos.app.ui.theme.TabularMoneyStyle
 import com.loypos.app.ui.theme.LocalLoyMetrics
 import com.loypos.app.ui.theme.accessibleTouchTarget
 import com.loypos.app.ui.theme.tileColorFor
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.MenuAnchorType
 import java.io.File
 
 data class CompactNavEntry(
@@ -294,10 +301,12 @@ fun StockDotBadge(
     threshold: Double = 3.0,
 ) {
     if (!item.trackStock) return
+    val effectiveMin = item.effectiveSafetyThreshold(threshold)
+    val customSuffix = if (item.safetyThreshold != null) " (min ${formatQty(effectiveMin)})" else ""
     val (dotColor, label) = when {
-        item.stock <= 0.0 -> LoyError to "Rented out"
-        item.stock < threshold -> LoyWarning to "Low · ${if (item.stock == item.stock.toLong().toDouble()) item.stock.toLong() else item.stock} avail"
-        else -> LoyGreen to "${if (item.stock == item.stock.toLong().toDouble()) item.stock.toLong() else item.stock} avail"
+        item.stock <= 0.0 -> LoyError to "Rented out$customSuffix"
+        item.stock < effectiveMin -> LoyWarning to "Low · ${formatQty(item.stock)} avail$customSuffix"
+        else -> LoyGreen to "${formatQty(item.stock)} avail$customSuffix"
     }
     Row(
         modifier = modifier,
@@ -313,7 +322,11 @@ fun StockDotBadge(
         Text(
             text = label,
             style = MaterialTheme.typography.bodySmall,
-            color = if (item.stock <= 0.0) LoyError else LoyTextSecondary,
+            color = when {
+                item.stock <= 0.0 -> LoyError
+                item.stock < effectiveMin -> Color(0xFFB78103)
+                else -> LoyTextSecondary
+            },
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -605,6 +618,7 @@ fun TopSyncIconButton(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun InventoryStockAlertSettingsDialog(
     initialEnabled: Boolean,
@@ -613,10 +627,18 @@ fun InventoryStockAlertSettingsDialog(
     onSave: (enabled: Boolean, threshold: Double, intervalMinutes: Long) -> Unit,
     onTestCheckNow: () -> Unit,
     onDismiss: () -> Unit,
+    trackedItems: List<ItemEntity> = emptyList(),
+    onUpdateItemThreshold: ((itemId: String, safetyThreshold: Double?) -> Unit)? = null,
 ) {
     var enabled by remember { mutableStateOf(initialEnabled) }
     var thresholdText by remember { mutableStateOf(formatQty(initialThreshold)) }
     var selectedInterval by remember { mutableLongStateOf(initialIntervalMinutes.coerceAtLeast(15L)) }
+    var selectedItemId by remember(trackedItems) { mutableStateOf(trackedItems.firstOrNull()?.id) }
+    val selectedItem = trackedItems.firstOrNull { it.id == selectedItemId }
+    var itemExpanded by remember { mutableStateOf(false) }
+    var itemThresholdText by remember(selectedItemId, selectedItem?.safetyThreshold) {
+        mutableStateOf(selectedItem?.safetyThreshold?.let { formatQty(it) } ?: "")
+    }
     val parsedThreshold = parseQty(thresholdText)
     val metrics = LocalLoyMetrics.current
 
@@ -631,16 +653,19 @@ fun InventoryStockAlertSettingsDialog(
                     modifier = Modifier.size(24.dp),
                 )
                 Text(
-                    "Stock Alerts & Monitor",
+                    "Equipment Safety Alerts",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                 )
             }
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
                 Text(
-                    text = "WorkManager automatically checks inventory in the background and sends an Android system notification when products drop below your threshold.",
+                    text = "WorkManager monitors equipment inventory in the background and sends local Android notifications whenever an item drops below its specific safety threshold (or your global fallback).",
                     style = MaterialTheme.typography.bodySmall,
                     color = LoyTextSecondary,
                 )
@@ -657,7 +682,7 @@ fun InventoryStockAlertSettingsDialog(
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Background Alerts", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            Text("Background WorkManager Monitor", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                             Text(
                                 if (enabled) "Periodic scan active" else "Alerts turned off",
                                 style = MaterialTheme.typography.bodySmall,
@@ -673,17 +698,17 @@ fun InventoryStockAlertSettingsDialog(
                 }
 
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Low Stock Threshold (units)", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                    Text("Default Global Safety Threshold (units)", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
                     OutlinedTextField(
                         value = thresholdText,
                         onValueChange = { thresholdText = it },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth().testTag("stock_threshold_input"),
-                        label = { Text("Minimum quantity") },
+                        label = { Text("Fallback minimum quantity") },
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf(1.0, 3.0, 5.0, 10.0).forEach { qty ->
+                        listOf(2.0, 3.0, 5.0, 10.0).forEach { qty ->
                             FilterChip(
                                 selected = parsedThreshold == qty,
                                 onClick = { thresholdText = formatQty(qty) },
@@ -710,13 +735,82 @@ fun InventoryStockAlertSettingsDialog(
                     }
                 }
 
+                if (trackedItems.isNotEmpty() && onUpdateItemThreshold != null) {
+                    HorizontalDivider(color = LoyBorder)
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            "Specific Equipment Safety Override",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        ExposedDropdownMenuBox(
+                            expanded = itemExpanded,
+                            onExpandedChange = { itemExpanded = !itemExpanded },
+                        ) {
+                            OutlinedTextField(
+                                value = selectedItem?.let { "${it.name} (${formatQty(it.stock)} avail)" } ?: "Select equipment",
+                                onValueChange = {},
+                                readOnly = true,
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = itemExpanded) },
+                                modifier = Modifier
+                                    .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                                    .fillMaxWidth()
+                                    .testTag("safety_override_item_picker"),
+                                label = { Text("Equipment tool") },
+                            )
+                            ExposedDropdownMenu(
+                                expanded = itemExpanded,
+                                onDismissRequest = { itemExpanded = false },
+                            ) {
+                                trackedItems.take(25).forEach { eq ->
+                                    val customStr = eq.safetyThreshold?.let { "min ${formatQty(it)}" } ?: "global"
+                                    DropdownMenuItem(
+                                        text = { Text("${eq.name} ($customStr)", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                        onClick = {
+                                            selectedItemId = eq.id
+                                            itemExpanded = false
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                        if (selectedItem != null) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                OutlinedTextField(
+                                    value = itemThresholdText,
+                                    onValueChange = { itemThresholdText = it },
+                                    label = { Text("Item min (blank = global)") },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f).testTag("safety_override_input"),
+                                )
+                                FilledTonalButton(
+                                    onClick = {
+                                        val clean = itemThresholdText.trim()
+                                        val parsed = if (clean.isEmpty()) null else parseQty(clean)
+                                        if (clean.isEmpty() || parsed != null) {
+                                            onUpdateItemThreshold(selectedItem.id, parsed)
+                                        }
+                                    },
+                                    modifier = Modifier.heightIn(min = 48.dp).testTag("safety_override_apply"),
+                                ) {
+                                    Text(if (itemThresholdText.isBlank()) "Clear" else "Set")
+                                }
+                            }
+                        }
+                    }
+                }
+
                 OutlinedButton(
                     onClick = onTestCheckNow,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp).testTag("stock_alerts_test_now"),
                 ) {
                     Icon(Icons.Outlined.RestartAlt, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text("Run Stock Check Now", style = MaterialTheme.typography.labelMedium)
+                    Text("Run Safety Check Now", style = MaterialTheme.typography.labelMedium)
                 }
             }
         },

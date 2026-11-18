@@ -93,7 +93,9 @@ import com.patrykandpatrick.vico.core.common.shader.ShaderProvider
 import kotlin.math.roundToLong
 import com.loypos.app.ui.components.BranchPickerSheet
 import com.loypos.app.ui.components.EmptyState
+import com.loypos.app.ui.components.EquipmentUtilizationChartCard
 import com.loypos.app.ui.components.GroupCard
+import com.loypos.app.ui.components.MonthlyRentalIncomeChartCard
 import com.loypos.app.ui.components.PillBadge
 import com.loypos.app.ui.components.SectionHeader
 import com.loypos.app.ui.components.StatBlock
@@ -156,7 +158,7 @@ fun DashboardScreen(
         data.items.count { it.trackStock && it.stock <= 0.0 }
     }
     val lowStockCount = remember(data.items, lowThreshold) {
-        data.items.count { it.trackStock && it.stock > 0.0 && it.stock < lowThreshold }
+        data.items.count { it.trackStock && it.stock > 0.0 && it.isBelowSafetyThreshold(lowThreshold) }
     }
 
     val branchReceipts = remember(data.receipts, branchId) {
@@ -174,6 +176,18 @@ fun DashboardScreen(
 
     val trendDays by viewModel.revenueTrendDays.collectAsStateWithLifecycle()
     val revenueTrend by viewModel.dailyRevenueTrend.collectAsStateWithLifecycle()
+    val monthlyMonths by viewModel.monthlyIncomeMonths.collectAsStateWithLifecycle()
+    var utilByCategory by remember { mutableStateOf(true) }
+    var utilLiveMode by remember { mutableStateOf(true) }
+    val monthlyIncomePoints = remember(data.receipts, monthlyMonths, branchId) {
+        viewModel.computeMonthlyRentalIncome(data, monthlyMonths, branchId)
+    }
+    val utilByCategoryPoints = remember(data.items, data.categories, data.receipts, branchId, utilLiveMode) {
+        viewModel.computeEquipmentUtilization(data, branchId, byCategory = true, liveOutMode = utilLiveMode)
+    }
+    val utilTopItemPoints = remember(data.items, data.categories, data.receipts, branchId, utilLiveMode) {
+        viewModel.computeEquipmentUtilization(data, branchId, byCategory = false, liveOutMode = utilLiveMode)
+    }
 
     val quickActions = remember(
         viewModel,
@@ -422,6 +436,65 @@ fun DashboardScreen(
                             }
                         }
                     }
+                }
+            }
+
+            // Monthly Rental Income & Equipment Utilization Rate Charts (Vico)
+            if (windowSize.isExpanded) {
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(metrics.sectionGap),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            SectionHeader("Monthly Rental Income")
+                            MonthlyRentalIncomeChartCard(
+                                points = monthlyIncomePoints,
+                                selectedMonths = monthlyMonths,
+                                currencySymbol = sym,
+                                onSelectMonths = viewModel::setMonthlyIncomeMonths,
+                                subtitlePrefix = activeBranch?.name ?: "All branches",
+                                testTagPrefix = "dash_monthly_income",
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            SectionHeader("Equipment Utilization Rate")
+                            EquipmentUtilizationChartCard(
+                                byCategoryPoints = utilByCategoryPoints,
+                                topItemPoints = utilTopItemPoints,
+                                liveOutMode = utilLiveMode,
+                                byCategory = utilByCategory,
+                                onToggleLiveMode = { utilLiveMode = it },
+                                onToggleByCategory = { utilByCategory = it },
+                                testTagPrefix = "dash_utilization",
+                            )
+                        }
+                    }
+                }
+            } else {
+                item {
+                    SectionHeader("Monthly Rental Income")
+                    MonthlyRentalIncomeChartCard(
+                        points = monthlyIncomePoints,
+                        selectedMonths = monthlyMonths,
+                        currencySymbol = sym,
+                        onSelectMonths = viewModel::setMonthlyIncomeMonths,
+                        subtitlePrefix = activeBranch?.name ?: "All branches",
+                        testTagPrefix = "dash_monthly_income",
+                    )
+                }
+                item {
+                    SectionHeader("Equipment Utilization Rate")
+                    EquipmentUtilizationChartCard(
+                        byCategoryPoints = utilByCategoryPoints,
+                        topItemPoints = utilTopItemPoints,
+                        liveOutMode = utilLiveMode,
+                        byCategory = utilByCategory,
+                        onToggleLiveMode = { utilLiveMode = it },
+                        onToggleByCategory = { utilByCategory = it },
+                        testTagPrefix = "dash_utilization",
+                    )
                 }
             }
 

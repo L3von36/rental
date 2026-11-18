@@ -88,7 +88,9 @@ import com.loypos.app.ui.LoyPosDataState
 import com.loypos.app.ui.LoyPosViewModel
 import com.loypos.app.ui.UiSessionState
 import com.loypos.app.ui.components.EmptyState
+import com.loypos.app.ui.components.EquipmentUtilizationChartCard
 import com.loypos.app.ui.components.GroupCard
+import com.loypos.app.ui.components.MonthlyRentalIncomeChartCard
 import com.loypos.app.ui.components.PillBadge
 import com.loypos.app.ui.components.SectionHeader
 import com.loypos.app.ui.components.StatBlock
@@ -219,8 +221,8 @@ fun BackOfficeDashboardScreen(
     }
     val lowStockItems = remember(trackedItems, data.settings.lowStockThreshold) {
         val th = data.settings.lowStockThreshold
-        trackedItems.filter { it.trackStock && it.stock > 0.0 && it.stock < th }
-            .sortedBy { it.stock }
+        trackedItems.filter { it.trackStock && it.stock > 0.0 && it.isBelowSafetyThreshold(th) }
+            .sortedBy { it.stock - it.effectiveSafetyThreshold(th) }
     }
 
     // Branch breakdown across all completed sales in period
@@ -244,6 +246,18 @@ fun BackOfficeDashboardScreen(
 
     val trendDays by viewModel.backOfficeTrendDays.collectAsStateWithLifecycle()
     val boTrend by viewModel.backOfficeRevenueTrend.collectAsStateWithLifecycle()
+    val monthlyMonths by viewModel.monthlyIncomeMonths.collectAsStateWithLifecycle()
+    var utilByCategory by remember { mutableStateOf(true) }
+    var utilLiveMode by remember { mutableStateOf(true) }
+    val monthlyIncomePoints = remember(data.receipts, monthlyMonths, selectedBranchId) {
+        viewModel.computeMonthlyRentalIncome(data, monthlyMonths, selectedBranchId)
+    }
+    val utilByCategoryPoints = remember(data.items, data.categories, data.receipts, selectedBranchId, utilLiveMode) {
+        viewModel.computeEquipmentUtilization(data, selectedBranchId, byCategory = true, liveOutMode = utilLiveMode)
+    }
+    val utilTopItemPoints = remember(data.items, data.categories, data.receipts, selectedBranchId, utilLiveMode) {
+        viewModel.computeEquipmentUtilization(data, selectedBranchId, byCategory = false, liveOutMode = utilLiveMode)
+    }
     val activeBranchLabel = remember(data.branches, selectedBranchId) {
         if (selectedBranchId == null) "All Branches"
         else data.branches.firstOrNull { it.id == selectedBranchId }?.name ?: "Selected Branch"
@@ -529,6 +543,73 @@ fun BackOfficeDashboardScreen(
                 )
             }
 
+            // Monthly Rental Income & Equipment Utilization Charts (Vico)
+            if (windowSize.isExpanded) {
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(metrics.sectionGap),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            SectionHeader("Monthly Rental Income")
+                            MonthlyRentalIncomeChartCard(
+                                points = monthlyIncomePoints,
+                                selectedMonths = monthlyMonths,
+                                currencySymbol = sym,
+                                onSelectMonths = viewModel::setMonthlyIncomeMonths,
+                                accentColor = BackOfficeTeal,
+                                accentLight = BackOfficeTealLight,
+                                subtitlePrefix = activeBranchLabel,
+                                testTagPrefix = "bo_monthly_income",
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            SectionHeader("Equipment Utilization Rate")
+                            EquipmentUtilizationChartCard(
+                                byCategoryPoints = utilByCategoryPoints,
+                                topItemPoints = utilTopItemPoints,
+                                liveOutMode = utilLiveMode,
+                                byCategory = utilByCategory,
+                                onToggleLiveMode = { utilLiveMode = it },
+                                onToggleByCategory = { utilByCategory = it },
+                                accentColor = BackOfficeNavy,
+                                accentLight = BackOfficeTealLight,
+                                testTagPrefix = "bo_utilization",
+                            )
+                        }
+                    }
+                }
+            } else {
+                item {
+                    SectionHeader("Monthly Rental Income")
+                    MonthlyRentalIncomeChartCard(
+                        points = monthlyIncomePoints,
+                        selectedMonths = monthlyMonths,
+                        currencySymbol = sym,
+                        onSelectMonths = viewModel::setMonthlyIncomeMonths,
+                        accentColor = BackOfficeTeal,
+                        accentLight = BackOfficeTealLight,
+                        subtitlePrefix = activeBranchLabel,
+                        testTagPrefix = "bo_monthly_income",
+                    )
+                }
+                item {
+                    SectionHeader("Equipment Utilization Rate")
+                    EquipmentUtilizationChartCard(
+                        byCategoryPoints = utilByCategoryPoints,
+                        topItemPoints = utilTopItemPoints,
+                        liveOutMode = utilLiveMode,
+                        byCategory = utilByCategory,
+                        onToggleLiveMode = { utilLiveMode = it },
+                        onToggleByCategory = { utilByCategory = it },
+                        accentColor = BackOfficeNavy,
+                        accentLight = BackOfficeTealLight,
+                        testTagPrefix = "bo_utilization",
+                    )
+                }
+            }
+
             // Inventory Valuation & Alerts
             item {
                 SectionHeader("Fleet Valuation & Health")
@@ -780,14 +861,17 @@ fun BackOfficeDashboardScreen(
                                         .padding(horizontal = 12.dp, vertical = 9.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
+                                    val itemMin = item.effectiveSafetyThreshold(data.settings.lowStockThreshold)
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(item.name, fontWeight = FontWeight.SemiBold)
-                                        if (item.sku.isNotEmpty()) {
-                                            Text("SKU ${item.sku}", style = MaterialTheme.typography.bodySmall, color = LoyTextSecondary)
-                                        }
+                                        Text(
+                                            "${if (item.sku.isNotEmpty()) "SKU ${item.sku} · " else ""}Safety min ${formatQty(itemMin)}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = LoyTextSecondary,
+                                        )
                                     }
                                     PillBadge(
-                                        text = if (item.stock <= 0.0) "Out" else "${formatQty(item.stock)} left",
+                                        text = if (item.stock <= 0.0) "Out" else "${formatQty(item.stock)} / ${formatQty(itemMin)}",
                                         backgroundColor = if (item.stock <= 0.0) LoyErrorLight else Color(0xFFFFF3E0),
                                         textColor = if (item.stock <= 0.0) LoyError else LoyWarning,
                                     )

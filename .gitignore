@@ -15,4 +15,7 @@ plesk-backend/api/v1/config.php
 /desktop/build
 /release-apks
 /release-desktop
-
+.kotlin/
+/.build-outputs
+debug.keystore
+release.keystore

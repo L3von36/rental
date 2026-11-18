@@ -67,8 +67,8 @@ class GithubUpdateWorker(
     override suspend fun doWork(): Result {
         return try {
             val context = applicationContext
-            // GitHub Releases API endpoint for LoyPOS
-            val apiUrl = "https://api.github.com/repos/akirmaevents/LoyPOS/releases/latest"
+            // GitHub Releases API endpoint for LoyPOS Event Rental
+            val apiUrl = "https://api.github.com/repos/L3von36/rental/releases/latest"
             val conn = (URL(apiUrl).openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
                 connectTimeout = 8000
@@ -97,7 +97,7 @@ class GithubUpdateWorker(
 
                 // Simple version comparison or inequality check
                 if (remoteClean.isNotEmpty() && remoteClean != localClean) {
-                    showUpdateNotification(context, tagName, releaseNotes, htmlUrl.ifEmpty { "https://github.com/akirmaevents/LoyPOS/releases" })
+                    showUpdateNotification(context, tagName, releaseNotes, htmlUrl.ifEmpty { "https://github.com/L3von36/rental/releases" })
                 }
             }
 

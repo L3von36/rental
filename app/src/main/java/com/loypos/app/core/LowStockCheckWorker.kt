@@ -36,10 +36,10 @@ object LowStockNotifier {
         if (manager.getNotificationChannel(CHANNEL_ID) == null) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Low Stock Alerts",
+                "Equipment Safety Alerts",
                 NotificationManager.IMPORTANCE_DEFAULT,
             ).apply {
-                description = "Background alerts when Room inventory falls below your defined threshold."
+                description = "WorkManager alerts when specific event equipment drops below its defined safety threshold."
             }
             manager.createNotificationChannel(channel)
         }
@@ -59,7 +59,7 @@ object LowStockNotifier {
     fun showLowStockNotification(
         context: Context,
         lowStockItems: List<ProductEntity>,
-        threshold: Double,
+        globalThreshold: Double,
     ): Boolean {
         if (lowStockItems.isEmpty() || !hasNotificationPermission(context)) return false
         ensureChannel(context)
@@ -75,42 +75,60 @@ object LowStockNotifier {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        val sorted = lowStockItems.sortedWith(compareBy<ProductEntity> { it.stock }.thenBy { it.name })
+        val sorted = lowStockItems.sortedWith(
+            compareBy<ProductEntity> { it.stock > 0.0 }
+                .thenBy {
+                    val th = it.effectiveSafetyThreshold(globalThreshold)
+                    if (th > 0.0) it.stock / th else it.stock
+                }
+                .thenBy { it.name }
+        )
         val outOfStockCount = sorted.count { it.stock <= 0.0 }
+        val customThresholdCount = sorted.count { it.safetyThreshold != null }
         val count = sorted.size
 
         val title = when {
-            count == 1 && outOfStockCount == 1 -> "Out of stock: ${sorted.first().name}"
-            count == 1 -> "Low stock alert: ${sorted.first().name}"
-            outOfStockCount > 0 -> "$count items low ($outOfStockCount out of stock)"
-            else -> "$count products below ${formatQty(threshold)} in stock"
+            count == 1 && outOfStockCount == 1 -> "Rented out: ${sorted.first().name}"
+            count == 1 -> "Safety alert: ${sorted.first().name}"
+            outOfStockCount > 0 -> "$count equipment items below safety ($outOfStockCount out)"
+            else -> "$count equipment items below safety threshold"
         }
 
         val summaryLine = if (count == 1) {
             val item = sorted.first()
+            val itemMin = item.effectiveSafetyThreshold(globalThreshold)
             val skuNote = if (item.sku.isNotEmpty()) " · SKU ${item.sku}" else ""
             if (item.stock <= 0.0) {
-                "Out of stock (threshold: < ${formatQty(threshold)})$skuNote"
+                "0 available (safety min: ${formatQty(itemMin)})$skuNote"
             } else {
-                "Only ${formatQty(item.stock)} left (threshold: < ${formatQty(threshold)})$skuNote"
+                "${formatQty(item.stock)} available (below safety min: ${formatQty(itemMin)})$skuNote"
             }
         } else {
             val preview = sorted.take(3).joinToString(", ") {
-                "${it.name} (${if (it.stock <= 0.0) "0" else formatQty(it.stock)})"
+                val min = it.effectiveSafetyThreshold(globalThreshold)
+                val qtyStr = if (it.stock <= 0.0) "0" else formatQty(it.stock)
+                "${it.name} ($qtyStr/${formatQty(min)})"
             }
             if (count > 3) "$preview +${count - 3} more" else preview
         }
 
         val inboxStyle = NotificationCompat.InboxStyle()
             .setBigContentTitle(title)
-            .setSummaryText("Threshold: < ${formatQty(threshold)} · Tap to restock")
+            .setSummaryText(
+                if (customThresholdCount > 0) {
+                    "$customThresholdCount custom item thresholds · Tap to review fleet"
+                } else {
+                    "Safety threshold: < ${formatQty(globalThreshold)} · Tap to review fleet"
+                }
+            )
         sorted.take(5).forEach { item ->
-            val stockText = if (item.stock <= 0.0) "Out of stock" else "${formatQty(item.stock)} left"
+            val itemMin = item.effectiveSafetyThreshold(globalThreshold)
+            val stockText = if (item.stock <= 0.0) "0 avail" else "${formatQty(item.stock)} avail"
             val skuTag = if (item.sku.isNotEmpty()) " [${item.sku}]" else ""
-            inboxStyle.addLine("${item.name}$skuTag — $stockText")
+            inboxStyle.addLine("${item.name}$skuTag — $stockText (min ${formatQty(itemMin)})")
         }
         if (count > 5) {
-            inboxStyle.addLine("+${count - 5} more items need restocking")
+            inboxStyle.addLine("+${count - 5} more equipment items need replenishment")
         }
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
@@ -121,7 +139,7 @@ object LowStockNotifier {
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
             .setContentIntent(contentIntent)
-            .addAction(0, "Review & Restock", contentIntent)
+            .addAction(0, "Review Fleet", contentIntent)
             .build()
 
         return try {
@@ -144,17 +162,19 @@ class LowStockCheckWorker(
         val settings = repo.settingsFlow.first()
         val forceNotify = inputData.getBoolean(KEY_FORCE_NOTIFY, false)
 
-        val threshold = settings.lowStockThreshold.coerceAtLeast(0.0)
-        val lowItems = repo.getLowStockProducts(threshold)
-        repo.saveLowStockCheckResult(nowMs(), lowItems.size)
+        val globalThreshold = settings.lowStockThreshold.coerceAtLeast(0.0)
+        val lowItems = repo.getLowStockProducts(globalThreshold)
+        val checkedAt = nowMs()
+        repo.saveLowStockCheckResult(checkedAt, lowItems.size)
 
         if ((settings.lowStockAlertsEnabled || forceNotify) && lowItems.isNotEmpty()) {
-            LowStockNotifier.showLowStockNotification(applicationContext, lowItems, threshold)
+            LowStockNotifier.showLowStockNotification(applicationContext, lowItems, globalThreshold)
         }
         return Result.success(
             workDataOf(
                 KEY_LOW_COUNT to lowItems.size,
-                KEY_CHECKED_AT to nowMs(),
+                KEY_CHECKED_AT to checkedAt,
+                KEY_ALERT_ITEM_NAMES to lowItems.take(5).joinToString(", ") { it.name },
             )
         )
     }
@@ -163,6 +183,7 @@ class LowStockCheckWorker(
         const val KEY_FORCE_NOTIFY = "force_notify"
         const val KEY_LOW_COUNT = "low_count"
         const val KEY_CHECKED_AT = "checked_at"
+        const val KEY_ALERT_ITEM_NAMES = "alert_item_names"
     }
 }
 

@@ -32,8 +32,10 @@ import com.loypos.app.data.local.DailyRevenuePoint
 import com.loypos.app.data.local.DbStats
 import com.loypos.app.data.local.EquipmentScanLogEntity
 import com.loypos.app.data.local.EquipmentUnitEntity
+import com.loypos.app.data.local.EquipmentUtilizationPoint
 import com.loypos.app.data.local.ItemEntity
 import com.loypos.app.data.local.LoyPosDatabase
+import com.loypos.app.data.local.MonthlyIncomePoint
 import com.loypos.app.data.local.ProductEntity
 import com.loypos.app.data.local.ReceiptEntity
 import com.loypos.app.data.local.ReceiptLineEntity
@@ -59,6 +61,10 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.time.Instant
+import java.time.YearMonth
+import java.time.ZoneId
+import java.time.format.TextStyle
 import java.util.Calendar
 import java.util.Locale
 
@@ -186,6 +192,161 @@ class LoyPosRepository(private val context: Context) {
                 totalCents = daySales.sumOf { it.totalCents },
                 salesCount = daySales.size,
             )
+        }
+    }
+
+    fun computeMonthlyRentalIncome(
+        receipts: List<ReceiptWithLines>,
+        months: Int,
+        branchId: String?,
+    ): List<MonthlyIncomePoint> {
+        val clampedMonths = months.coerceIn(1, 24)
+        val zone = ZoneId.systemDefault()
+        val currentMonth = YearMonth.now(zone)
+        val filtered = receipts.filter { entry ->
+            entry.receipt.isCompleted &&
+                (branchId == null || entry.receipt.branchId == null || entry.receipt.branchId == branchId)
+        }
+        val grouped = filtered.groupBy { entry ->
+            YearMonth.from(Instant.ofEpochMilli(entry.receipt.createdAt).atZone(zone))
+        }
+        return ((clampedMonths - 1) downTo 0).map { offset ->
+            val ym = currentMonth.minusMonths(offset.toLong())
+            val monthOrders = grouped[ym].orEmpty()
+            val monthLabel = ym.month.getDisplayName(TextStyle.SHORT, Locale.getDefault())
+            val label = if (clampedMonths > 6 && ym.monthValue == 1) {
+                "$monthLabel '${(ym.year % 100).toString().padStart(2, '0')}"
+            } else {
+                monthLabel
+            }
+            val unitDays = monthOrders.sumOf { entry ->
+                val days = entry.receipt.rentalDays.coerceAtLeast(1)
+                entry.lines.sumOf { it.qty * days }
+            }
+            MonthlyIncomePoint(
+                yearMonthKey = ym.toString(),
+                label = label,
+                totalCents = monthOrders.sumOf { it.receipt.totalCents },
+                ordersCount = monthOrders.size,
+                rentedUnitDays = unitDays,
+            )
+        }
+    }
+
+    fun computeEquipmentUtilization(
+        items: List<ItemEntity>,
+        categories: List<CategoryEntity>,
+        receipts: List<ReceiptWithLines>,
+        branchId: String?,
+        byCategory: Boolean,
+        liveOutMode: Boolean,
+    ): List<EquipmentUtilizationPoint> {
+        val tracked = items.filter { it.trackStock && !it.archived && it.availableInBranch(branchId) }
+        if (tracked.isEmpty()) return emptyList()
+
+        val now = nowMs()
+        val windowDays = 30L
+        val windowStart = now - windowDays * 86_400_000L
+        val branchCompleted = receipts.filter { entry ->
+            entry.receipt.isCompleted &&
+                (branchId == null || entry.receipt.branchId == null || entry.receipt.branchId == branchId)
+        }
+
+        val activeOutByItem = mutableMapOf<String, Double>()
+        val unitDays30dByItem = mutableMapOf<String, Double>()
+        val revenueByItem = mutableMapOf<String, Long>()
+
+        for (entry in branchCompleted) {
+            val r = entry.receipt
+            val rStart = if (r.rentalStartMs > 0L) r.rentalStartMs else r.createdAt
+            val rEnd = if (r.rentalEndMs > rStart) r.rentalEndMs else rStart + r.rentalDays.coerceAtLeast(1) * 86_400_000L
+            val overlapMs = (minOf(rEnd, now) - maxOf(rStart, windowStart)).coerceAtLeast(0L)
+            val overlapDays = if (overlapMs > 0L) (overlapMs / 86_400_000.0).coerceAtLeast(0.25) else 0.0
+
+            for (line in entry.lines) {
+                revenueByItem[line.itemId] = (revenueByItem[line.itemId] ?: 0L) + line.lineTotalCents
+                if (r.isRentalOut) {
+                    activeOutByItem[line.itemId] = (activeOutByItem[line.itemId] ?: 0.0) + line.qty
+                }
+                if (overlapDays > 0.0) {
+                    unitDays30dByItem[line.itemId] = (unitDays30dByItem[line.itemId] ?: 0.0) + (line.qty * overlapDays)
+                }
+            }
+        }
+
+        val categoryNameById = categories.associate { it.id to it.name }
+
+        return if (byCategory) {
+            tracked
+                .groupBy { it.categoryId ?: "uncategorized" }
+                .map { (catId, group) ->
+                    val label = categoryNameById[catId] ?: "Other"
+                    val shortLabel = label
+                        .substringBefore("&")
+                        .trim()
+                        .split(" ")
+                        .firstOrNull()
+                        .orEmpty()
+                        .ifEmpty { label }
+                        .take(8)
+                    val activeOut = group.sumOf { activeOutByItem[it.id] ?: 0.0 }
+                    val totalCapacity = group.sumOf { (it.stock + (activeOutByItem[it.id] ?: 0.0)).coerceAtLeast(0.0) }
+                    val unitDays30 = group.sumOf { unitDays30dByItem[it.id] ?: 0.0 }
+                    val revCents = group.sumOf { revenueByItem[it.id] ?: 0L }
+                    val pct = if (totalCapacity <= 0.0) {
+                        0.0
+                    } else if (liveOutMode) {
+                        (activeOut / totalCapacity * 100.0).coerceIn(0.0, 100.0)
+                    } else {
+                        (unitDays30 / (totalCapacity * windowDays.toDouble()) * 100.0).coerceIn(0.0, 100.0)
+                    }
+                    EquipmentUtilizationPoint(
+                        id = catId,
+                        label = label,
+                        shortLabel = shortLabel,
+                        utilizationPercent = pct,
+                        activeOutUnits = activeOut,
+                        totalCapacityUnits = totalCapacity,
+                        revenueCents = revCents,
+                    )
+                }
+                .sortedWith(
+                    compareByDescending<EquipmentUtilizationPoint> { it.utilizationPercent }
+                        .thenByDescending { it.revenueCents }
+                        .thenByDescending { it.totalCapacityUnits }
+                )
+        } else {
+            tracked
+                .map { item ->
+                    val activeOut = activeOutByItem[item.id] ?: 0.0
+                    val totalCapacity = (item.stock + activeOut).coerceAtLeast(0.0)
+                    val unitDays30 = unitDays30dByItem[item.id] ?: 0.0
+                    val revCents = revenueByItem[item.id] ?: 0L
+                    val pct = if (totalCapacity <= 0.0) {
+                        0.0
+                    } else if (liveOutMode) {
+                        (activeOut / totalCapacity * 100.0).coerceIn(0.0, 100.0)
+                    } else {
+                        (unitDays30 / (totalCapacity * windowDays.toDouble()) * 100.0).coerceIn(0.0, 100.0)
+                    }
+                    val shortLabel = item.sku.takeIf { it.isNotBlank() }?.take(8)
+                        ?: item.name.take(8).trim()
+                    EquipmentUtilizationPoint(
+                        id = item.id,
+                        label = item.name,
+                        shortLabel = shortLabel,
+                        utilizationPercent = pct,
+                        activeOutUnits = activeOut,
+                        totalCapacityUnits = totalCapacity,
+                        revenueCents = revCents,
+                    )
+                }
+                .sortedWith(
+                    compareByDescending<EquipmentUtilizationPoint> { it.utilizationPercent }
+                        .thenByDescending { it.activeOutUnits }
+                        .thenByDescending { it.revenueCents }
+                )
+                .take(6)
         }
     }
 
@@ -551,6 +712,10 @@ class LoyPosRepository(private val context: Context) {
     // --- Items & Stock (via ProductDao CRUD) ---
     suspend fun saveItem(item: ItemEntity) {
         productDao.upsertProduct(item.copy(updatedAt = nowMs()))
+    }
+
+    suspend fun updateItemSafetyThreshold(itemId: String, safetyThreshold: Double?) {
+        productDao.updateSafetyThreshold(itemId, safetyThreshold?.coerceAtLeast(0.0), nowMs())
     }
 
     suspend fun deleteItem(id: String) {
@@ -1559,6 +1724,7 @@ class LoyPosRepository(private val context: Context) {
                         put("archived", if (p.archived) 1 else 0)
                         put("branch_ids", p.branchIds)
                         put("image_path", p.imagePath)
+                        put("safety_threshold", p.safetyThreshold ?: JSONObject.NULL)
                         put("updated_at", p.updatedAt)
                     })
                 }
@@ -1751,6 +1917,11 @@ class LoyPosRepository(private val context: Context) {
                         archived = o.optInt("archived", 0) == 1 || o.optBoolean("archived", false),
                         branchIds = o.optString("branch_ids", ""),
                         imagePath = existing?.imagePath ?: o.optString("image_path", ""),
+                        safetyThreshold = if (o.has("safety_threshold") && !o.isNull("safety_threshold")) {
+                            o.optDouble("safety_threshold").coerceAtLeast(0.0)
+                        } else {
+                            existing?.safetyThreshold
+                        },
                         updatedAt = remoteUpdated,
                     )
                 }

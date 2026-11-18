@@ -30,7 +30,11 @@ interface ProductDao {
     @Query("SELECT * FROM products WHERE archived = 0 AND sku = :sku LIMIT 1")
     suspend fun getProductBySku(sku: String): ProductEntity?
 
-    @Query("SELECT * FROM products WHERE archived = 0 AND track_stock = 1 AND stock < :threshold ORDER BY stock ASC, name ASC")
+    @Query(
+        "SELECT * FROM products WHERE archived = 0 AND track_stock = 1 " +
+            "AND stock < COALESCE(safety_threshold, :threshold) " +
+            "ORDER BY (stock - COALESCE(safety_threshold, :threshold)) ASC, stock ASC, name ASC"
+    )
     suspend fun getLowStockProducts(threshold: Double): List<ProductEntity>
 
     // Create / Upsert
@@ -49,6 +53,9 @@ interface ProductDao {
 
     @Query("UPDATE products SET stock = :stock, updated_at = :updatedAt WHERE id = :id")
     suspend fun updateProductStock(id: String, stock: Double, updatedAt: Long)
+
+    @Query("UPDATE products SET safety_threshold = :safetyThreshold, updated_at = :updatedAt WHERE id = :id")
+    suspend fun updateSafetyThreshold(id: String, safetyThreshold: Double?, updatedAt: Long)
 
     @Query("UPDATE products SET stock = stock + :delta, updated_at = :updatedAt WHERE id = :id AND track_stock = 1")
     suspend fun adjustProductStock(id: String, delta: Double, updatedAt: Long)

@@ -34,7 +34,7 @@ import kotlinx.coroutines.launch
         EquipmentScanLogEntity::class,
         AgreementTemplateEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = false,
 )
 abstract class LoyPosDatabase : RoomDatabase() {
@@ -159,6 +159,12 @@ abstract class LoyPosDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE products ADD COLUMN safety_threshold REAL")
+            }
+        }
+
         fun getInstance(context: Context): LoyPosDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -166,7 +172,7 @@ abstract class LoyPosDatabase : RoomDatabase() {
                     LoyPosDatabase::class.java,
                     DB_NAME,
                 )
-                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {

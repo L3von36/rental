@@ -107,11 +107,18 @@ data class ProductEntity(
     val archived: Boolean = false,
     @ColumnInfo(name = "branch_ids") val branchIds: String = "",
     @ColumnInfo(name = "image_path") val imagePath: String = "",
+    @ColumnInfo(name = "safety_threshold") val safetyThreshold: Double? = null,
     @ColumnInfo(name = "updated_at") val updatedAt: Long = 0L,
 ) {
     val hasPhoto: Boolean get() = imagePath.isNotEmpty()
     val stockQuantity: Double get() = stock
     val priceAmount: Double get() = priceCents / 100.0
+
+    fun effectiveSafetyThreshold(globalThreshold: Double): Double =
+        (safetyThreshold ?: globalThreshold).coerceAtLeast(0.0)
+
+    fun isBelowSafetyThreshold(globalThreshold: Double): Boolean =
+        trackStock && !archived && stock < effectiveSafetyThreshold(globalThreshold)
 
     fun availableInBranch(branchId: String?): Boolean {
         if (branchIds.isEmpty() || branchId.isNullOrEmpty()) return true
@@ -507,3 +514,24 @@ data class DailyRevenuePoint(
 ) {
     val revenueUnits: Double get() = totalCents / 100.0
 }
+
+data class MonthlyIncomePoint(
+    val yearMonthKey: String,
+    val label: String,
+    val totalCents: Long,
+    val ordersCount: Int,
+    val rentedUnitDays: Double,
+) {
+    val revenueUnits: Double get() = totalCents / 100.0
+}
+
+data class EquipmentUtilizationPoint(
+    val id: String,
+    val label: String,
+    val shortLabel: String,
+    val utilizationPercent: Double,
+    val activeOutUnits: Double,
+    val totalCapacityUnits: Double,
+    val revenueCents: Long,
+)
+

@@ -383,4 +383,43 @@ class DesktopRepositoryTest {
             dir.deleteRecursively()
         }
     }
+
+    @Test
+    fun perItemSafetyThresholdMonthlyIncomeAndCategoryUtilization() {
+        val (repo, dir) = tempRepo()
+        try {
+            val tent = repo.state.value.items.first { it.id == "eq-001" }
+            val withCustomSafety = tent.copy(stock = 6.0, safetyThreshold = 8.0)
+            assertFalse(tent.copy(stock = 6.0).isBelowSafetyThreshold(3.0))
+            assertTrue(withCustomSafety.isBelowSafetyThreshold(3.0))
+            assertEquals(8.0, withCustomSafety.effectiveSafetyThreshold(3.0), 0.001)
+
+            repo.checkoutRental(
+                lines = listOf(DesktopCartLine(tent.id, tent.name, tent.priceCents, 2.0, 2)),
+                rentalDays = 2,
+                paymentType = "card",
+                paidCents = 0L,
+                discountPercent = 0.0,
+                fixedDiscountCents = 0L,
+                depositCents = 0L,
+                client = null,
+                eventName = "Expo Showcase",
+                eventVenue = "Hall B",
+                note = "",
+            )
+
+            val monthly = repo.computeMonthlyIncome(6)
+            assertEquals(6, monthly.size)
+            assertTrue(monthly.last().totalCents > 0L)
+            assertEquals(1, monthly.last().ordersCount)
+
+            val util = repo.computeCategoryUtilization()
+            assertTrue(util.isNotEmpty())
+            val tentCategory = util.first { it.id == tent.categoryId }
+            assertTrue(tentCategory.utilizationPercent > 0.0)
+            assertTrue(tentCategory.activeOutUnits >= 2.0)
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
 }

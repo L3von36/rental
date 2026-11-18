@@ -177,14 +177,14 @@ fun InventoryScreen(
         roomProducts.count { it.trackStock && it.stock <= 0.0 }
     }
     val lowStockCount = remember(roomProducts, threshold) {
-        roomProducts.count { it.trackStock && it.stock > 0.0 && it.stock < threshold }
+        roomProducts.count { it.trackStock && it.stock > 0.0 && it.isBelowSafetyThreshold(threshold) }
     }
     val totalLowCount = outOfStockCount + lowStockCount
 
     val filteredProducts = remember(roomProducts, selectedCategoryFilter, lowStockOnly, threshold) {
         roomProducts.filter { product ->
             val matchesCat = selectedCategoryFilter == null || product.categoryId == selectedCategoryFilter
-            val matchesLow = !lowStockOnly || (product.trackStock && product.stock < threshold)
+            val matchesLow = !lowStockOnly || product.isBelowSafetyThreshold(threshold)
             matchesCat && matchesLow
         }
     }
@@ -361,7 +361,7 @@ fun InventoryScreen(
                             )
                         }
                         item {
-                            val lowCount = data.items.count { it.trackStock && it.stock < threshold }
+                            val lowCount = data.items.count { it.isBelowSafetyThreshold(threshold) }
                             FilterChip(
                                 selected = lowStockOnly,
                                 onClick = { lowStockOnly = !lowStockOnly },
@@ -407,7 +407,7 @@ fun InventoryScreen(
                                 icon = Icons.Outlined.Inventory2,
                                 title = if (search.isBlank() && !lowStockOnly) "No equipment found" else "No matching equipment",
                                 subtitle = when {
-                                    lowStockOnly -> "No equipment items are below ${formatQty(threshold)} available."
+                                    lowStockOnly -> "No equipment items are below their safety threshold."
                                     search.isBlank() -> "Tap + to add event tools to your fleet."
                                     else -> "No equipment matches \"$search\" by name or SKU."
                                 },
@@ -607,6 +607,8 @@ fun InventoryScreen(
             initialEnabled = data.settings.lowStockAlertsEnabled,
             initialThreshold = data.settings.lowStockThreshold,
             initialIntervalMinutes = data.settings.lowStockIntervalMinutes,
+            trackedItems = data.items.filter { it.trackStock && !it.archived },
+            onUpdateItemThreshold = viewModel::updateItemSafetyThreshold,
             onSave = { enabled, newThreshold, interval ->
                 if (enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     val hasPerm = ContextCompat.checkSelfPermission(
@@ -660,6 +662,9 @@ private fun ProductEditorBottomSheet(
     var barcode by remember { mutableStateOf(product.barcode) }
     var trackStock by remember { mutableStateOf(product.trackStock) }
     var stockText by remember { mutableStateOf(formatQty(product.stock)) }
+    var safetyThresholdText by remember {
+        mutableStateOf(product.safetyThreshold?.let { formatQty(it) } ?: "")
+    }
     var selectedBranches by remember {
         mutableStateOf(
             if (product.branchIds.isEmpty()) emptySet() else product.branchIds.split(",").filter { it.isNotEmpty() }.toSet()
@@ -857,8 +862,21 @@ private fun ProductEditorBottomSheet(
                     }
                 }
 
+                OutlinedTextField(
+                    value = safetyThresholdText,
+                    onValueChange = { safetyThresholdText = it },
+                    label = {
+                        Text("Safety alert min (blank = global ${formatQty(data.settings.lowStockThreshold)})")
+                    },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().testTag("item_safety_threshold_input"),
+                )
+
                 val curStock = parseQty(stockText) ?: 0.0
-                if (curStock < data.settings.lowStockThreshold) {
+                val effectiveThreshold = parseQty(safetyThresholdText)?.coerceAtLeast(0.0)
+                    ?: data.settings.lowStockThreshold
+                if (curStock < effectiveThreshold) {
                     Surface(
                         shape = RoundedCornerShape(8.dp),
                         color = if (curStock <= 0.0) Color(0xFFFFF3F0) else Color(0xFFFFF8E1),
@@ -878,9 +896,9 @@ private fun ProductEditorBottomSheet(
                             )
                             Text(
                                 text = if (curStock <= 0.0) {
-                                    "All units rented out! Threshold is < ${formatQty(data.settings.lowStockThreshold)}. Background check will notify."
+                                    "All units rented out! Safety threshold is < ${formatQty(effectiveThreshold)}. WorkManager will notify."
                                 } else {
-                                    "Low availability (< ${formatQty(data.settings.lowStockThreshold)}). Background check will trigger an alert."
+                                    "Below safety threshold (< ${formatQty(effectiveThreshold)}). WorkManager will trigger an alert."
                                 },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = if (curStock <= 0.0) LoyError else Color(0xFFB78103),
@@ -921,6 +939,11 @@ private fun ProductEditorBottomSheet(
                 onClick = {
                     val cleanName = name.trim()
                     if (cleanName.isEmpty()) return@Button
+                    val parsedSafety = if (safetyThresholdText.isBlank()) {
+                        null
+                    } else {
+                        parseQty(safetyThresholdText)?.coerceAtLeast(0.0)
+                    }
                     val updated = product.copy(
                         categoryId = categoryId,
                         name = cleanName,
@@ -930,6 +953,7 @@ private fun ProductEditorBottomSheet(
                         barcode = barcode.trim(),
                         trackStock = trackStock,
                         stock = parseQty(stockText) ?: 0.0,
+                        safetyThreshold = parsedSafety,
                         branchIds = selectedBranches.joinToString(","),
                     )
                     onSave(updated, pickedPhotoUri, removeExistingPhoto)

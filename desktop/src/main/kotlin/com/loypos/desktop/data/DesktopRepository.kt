@@ -19,10 +19,12 @@ import com.loypos.desktop.model.DesktopEquipment
 import com.loypos.desktop.model.DesktopEquipmentScanLog
 import com.loypos.desktop.model.DesktopEquipmentUnit
 import com.loypos.desktop.model.DesktopHeldQuote
+import com.loypos.desktop.model.DesktopMonthlyIncomePoint
 import com.loypos.desktop.model.DesktopRentalLine
 import com.loypos.desktop.model.DesktopRentalOrder
 import com.loypos.desktop.model.DesktopSettings
 import com.loypos.desktop.model.DesktopStoreSnapshot
+import com.loypos.desktop.model.DesktopUtilizationPoint
 import com.loypos.desktop.model.ExportSaleRecord
 import com.loypos.desktop.model.LoyPosExportPayload
 import com.loypos.desktop.model.LoyPosExportV1
@@ -38,6 +40,11 @@ import java.net.http.HttpResponse
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.time.Duration
+import java.time.Instant
+import java.time.YearMonth
+import java.time.ZoneId
+import java.time.format.TextStyle
+import java.util.Locale
 import kotlin.math.roundToLong
 
 class DesktopRepository(
@@ -853,5 +860,53 @@ class DesktopRepository(
                 error("Server responded with HTTP ${resp.statusCode()}")
             }
         }
+    }
+
+    fun computeMonthlyIncome(months: Int = 6): List<DesktopMonthlyIncomePoint> {
+        val clamped = months.coerceIn(1, 24)
+        val zone = ZoneId.systemDefault()
+        val nowYm = YearMonth.now(zone)
+        val completed = _state.value.orders.filter { it.isCompleted }
+        val grouped = completed.groupBy {
+            YearMonth.from(Instant.ofEpochMilli(it.createdAt).atZone(zone))
+        }
+        return ((clamped - 1) downTo 0).map { offset ->
+            val ym = nowYm.minusMonths(offset.toLong())
+            val orders = grouped[ym].orEmpty()
+            DesktopMonthlyIncomePoint(
+                yearMonthKey = ym.toString(),
+                label = ym.month.getDisplayName(TextStyle.SHORT, Locale.getDefault()),
+                totalCents = orders.sumOf { it.totalCents },
+                ordersCount = orders.size,
+            )
+        }
+    }
+
+    fun computeCategoryUtilization(): List<DesktopUtilizationPoint> {
+        val snap = _state.value
+        val activeOut = mutableMapOf<String, Double>()
+        snap.orders.filter { it.isRentalOut }.forEach { order ->
+            order.lines.forEach { line ->
+                val id = line.itemId ?: return@forEach
+                activeOut[id] = (activeOut[id] ?: 0.0) + line.qty
+            }
+        }
+        val catNames = snap.categories.associate { it.id to it.name }
+        return snap.items
+            .filter { it.trackStock }
+            .groupBy { it.categoryId ?: "other" }
+            .map { (catId, group) ->
+                val outUnits = group.sumOf { activeOut[it.id] ?: 0.0 }
+                val totalCap = group.sumOf { (it.stock + (activeOut[it.id] ?: 0.0)).coerceAtLeast(0.0) }
+                val pct = if (totalCap <= 0.0) 0.0 else (outUnits / totalCap * 100.0).coerceIn(0.0, 100.0)
+                DesktopUtilizationPoint(
+                    id = catId,
+                    label = catNames[catId] ?: "Other",
+                    utilizationPercent = pct,
+                    activeOutUnits = outUnits,
+                    totalCapacityUnits = totalCap,
+                )
+            }
+            .sortedByDescending { it.utilizationPercent }
     }
 }
