@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.Button
@@ -75,6 +76,7 @@ fun ReceiptSuccessScreen(
     val r = currentReceipt.receipt
     val sym = data.settings.currencySymbol
     var showPdfPreview by remember { mutableStateOf(false) }
+    var showAgreementDialog by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -195,6 +197,18 @@ fun ReceiptSuccessScreen(
                 }
             }
 
+            OutlinedButton(
+                onClick = { showAgreementDialog = true },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(42.dp)
+                    .testTag("receipt_agreement_button"),
+            ) {
+                Icon(Icons.Outlined.Description, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Rental Agreement")
+            }
+
             Button(
                 onClick = onDone,
                 modifier = Modifier
@@ -212,6 +226,15 @@ fun ReceiptSuccessScreen(
             viewModel = viewModel,
             receiptWithLines = currentReceipt,
             onDismiss = { showPdfPreview = false },
+        )
+    }
+
+    if (showAgreementDialog) {
+        PopulatedAgreementDialog(
+            viewModel = viewModel,
+            receiptWithLines = currentReceipt,
+            data = data,
+            onDismiss = { showAgreementDialog = false },
         )
     }
 }

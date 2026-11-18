@@ -7,6 +7,8 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.loypos.app.core.DemoCatalog
+import com.loypos.app.core.QrCodeUtils
+import com.loypos.app.core.RentalAgreementEngine
 import com.loypos.app.core.nowMs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -28,8 +30,11 @@ import kotlinx.coroutines.launch
         ShiftEntity::class,
         CashMovementEntity::class,
         SettingEntity::class,
+        EquipmentUnitEntity::class,
+        EquipmentScanLogEntity::class,
+        AgreementTemplateEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = false,
 )
 abstract class LoyPosDatabase : RoomDatabase() {
@@ -93,6 +98,67 @@ abstract class LoyPosDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS equipment_units (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        item_id TEXT NOT NULL,
+                        item_name TEXT NOT NULL,
+                        unit_code TEXT NOT NULL,
+                        qr_payload TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        current_receipt_id TEXT,
+                        current_event_name TEXT NOT NULL,
+                        current_customer_name TEXT NOT NULL,
+                        condition_note TEXT NOT NULL,
+                        last_scan_at INTEGER NOT NULL,
+                        updated_at INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_equipment_units_item_id ON equipment_units(item_id)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_equipment_units_unit_code ON equipment_units(unit_code)")
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS equipment_scan_logs (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        unit_id TEXT,
+                        unit_code TEXT NOT NULL,
+                        item_id TEXT NOT NULL,
+                        item_name TEXT NOT NULL,
+                        action TEXT NOT NULL,
+                        receipt_id TEXT,
+                        event_name TEXT NOT NULL,
+                        customer_name TEXT NOT NULL,
+                        operator_name TEXT NOT NULL,
+                        note TEXT NOT NULL,
+                        created_at INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_equipment_scan_logs_unit_id ON equipment_scan_logs(unit_id)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_equipment_scan_logs_item_id ON equipment_scan_logs(item_id)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_equipment_scan_logs_created_at ON equipment_scan_logs(created_at)")
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS agreement_templates (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        title TEXT NOT NULL,
+                        category TEXT NOT NULL,
+                        body TEXT NOT NULL,
+                        is_default INTEGER NOT NULL,
+                        created_at INTEGER NOT NULL,
+                        updated_at INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         fun getInstance(context: Context): LoyPosDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -100,7 +166,7 @@ abstract class LoyPosDatabase : RoomDatabase() {
                     LoyPosDatabase::class.java,
                     DB_NAME,
                 )
-                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
@@ -144,6 +210,35 @@ abstract class LoyPosDatabase : RoomDatabase() {
             db.categoryDao().upsertCategories(DemoCatalog.categories)
             db.productDao().upsertProducts(DemoCatalog.items)
             dao.upsertCustomer(DemoCatalog.defaultCustomer(now))
+            seedDefaultUnitsAndTemplates(db, now)
+        }
+
+        suspend fun seedDefaultUnitsAndTemplates(db: LoyPosDatabase, now: Long = nowMs()) {
+            val dao = db.dao()
+            if (dao.countAgreementTemplates() == 0) {
+                dao.upsertAgreementTemplates(RentalAgreementEngine.defaultTemplates(now))
+            }
+            if (dao.getAllEquipmentUnits().isEmpty()) {
+                val items = db.productDao().getAllProducts().filter { !it.archived }
+                val initialUnits = items.flatMap { item ->
+                    val count = item.stock.toInt().coerceIn(1, 3)
+                    (1..count).map { idx ->
+                        val unitCode = QrCodeUtils.buildDefaultUnitCode(item.sku, item.id, idx)
+                        EquipmentUnitEntity(
+                            id = "unit-${item.id}-$idx",
+                            itemId = item.id,
+                            itemName = item.name,
+                            unitCode = unitCode,
+                            qrPayload = QrCodeUtils.buildUnitPayload(item.id, unitCode),
+                            status = EquipmentUnitEntity.STATUS_CHECKED_IN,
+                            updatedAt = now,
+                        )
+                    }
+                }
+                if (initialUnits.isNotEmpty()) {
+                    dao.upsertEquipmentUnits(initialUnits)
+                }
+            }
         }
     }
 }

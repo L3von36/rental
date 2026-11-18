@@ -35,6 +35,7 @@ import androidx.compose.material.icons.outlined.Assessment
 import androidx.compose.material.icons.outlined.Backup
 import androidx.compose.material.icons.outlined.CloudSync
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.HealthAndSafety
@@ -43,6 +44,7 @@ import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.PeopleOutline
 import androidx.compose.material.icons.outlined.PersonOutline
+import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material.icons.outlined.RestartAlt
 import androidx.compose.material.icons.outlined.Restore
 import androidx.compose.material.icons.outlined.Storefront
@@ -197,6 +199,8 @@ fun SettingsScreen(
     onNavigateToCustomers: () -> Unit,
     onNavigateToReports: () -> Unit,
     onNavigateToShift: () -> Unit,
+    onNavigateToQrTracking: () -> Unit = {},
+    onNavigateToAgreements: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val user = session.currentUser
@@ -332,6 +336,22 @@ fun SettingsScreen(
                         subtitle = "${data.receipts.size} rental orders recorded",
                         onClick = onNavigateToReports,
                         modifier = Modifier.testTag("nav_backoffice_reports"),
+                    )
+                    HorizontalDivider(color = LoyBorder)
+                    SettingsNavRow(
+                        icon = Icons.Outlined.QrCodeScanner,
+                        title = "QR Equipment Tracking",
+                        subtitle = "${data.equipmentUnits.size} serialized QR unit tags · Check-in/out scanner",
+                        onClick = onNavigateToQrTracking,
+                        modifier = Modifier.testTag("nav_backoffice_qr_tracking"),
+                    )
+                    HorizontalDivider(color = LoyBorder)
+                    SettingsNavRow(
+                        icon = Icons.Outlined.Description,
+                        title = "Digital Rental Agreement Templates",
+                        subtitle = "${data.agreementTemplates.size} reusable contract templates with merge fields",
+                        onClick = onNavigateToAgreements,
+                        modifier = Modifier.testTag("nav_backoffice_agreements"),
                     )
                 }
             }

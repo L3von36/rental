@@ -427,6 +427,59 @@ interface LoyPosDao {
     @Query("DELETE FROM shifts") suspend fun deleteAllShifts()
     @Query("DELETE FROM settings WHERE key != 'session_user'") suspend fun deleteShopSettings()
 
+    // Equipment Units & QR Scan Logs
+    @Query("SELECT * FROM equipment_units ORDER BY item_name ASC, unit_code ASC")
+    fun observeEquipmentUnits(): Flow<List<EquipmentUnitEntity>>
+
+    @Query("SELECT * FROM equipment_units ORDER BY item_name ASC, unit_code ASC")
+    suspend fun getAllEquipmentUnits(): List<EquipmentUnitEntity>
+
+    @Query("SELECT * FROM equipment_units WHERE item_id = :itemId ORDER BY unit_code ASC")
+    suspend fun getEquipmentUnitsForItem(itemId: String): List<EquipmentUnitEntity>
+
+    @Query("SELECT * FROM equipment_units WHERE unit_code = :unitCode LIMIT 1")
+    suspend fun getEquipmentUnitByCode(unitCode: String): EquipmentUnitEntity?
+
+    @Query("SELECT * FROM equipment_units WHERE id = :id LIMIT 1")
+    suspend fun getEquipmentUnitById(id: String): EquipmentUnitEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertEquipmentUnit(unit: EquipmentUnitEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertEquipmentUnits(units: List<EquipmentUnitEntity>)
+
+    @Query("DELETE FROM equipment_units WHERE id = :id")
+    suspend fun deleteEquipmentUnitById(id: String)
+
+    @Query("SELECT * FROM equipment_scan_logs ORDER BY created_at DESC LIMIT 120")
+    fun observeEquipmentScanLogs(): Flow<List<EquipmentScanLogEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertEquipmentScanLog(log: EquipmentScanLogEntity)
+
+    // Digital Rental Agreement Templates
+    @Query("SELECT * FROM agreement_templates ORDER BY is_default DESC, updated_at DESC, title ASC")
+    fun observeAgreementTemplates(): Flow<List<AgreementTemplateEntity>>
+
+    @Query("SELECT * FROM agreement_templates ORDER BY is_default DESC, updated_at DESC, title ASC")
+    suspend fun getAllAgreementTemplates(): List<AgreementTemplateEntity>
+
+    @Query("SELECT COUNT(*) FROM agreement_templates")
+    suspend fun countAgreementTemplates(): Int
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAgreementTemplate(template: AgreementTemplateEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAgreementTemplates(templates: List<AgreementTemplateEntity>)
+
+    @Query("UPDATE agreement_templates SET is_default = CASE WHEN id = :id THEN 1 ELSE 0 END")
+    suspend fun setDefaultAgreementTemplate(id: String)
+
+    @Query("DELETE FROM agreement_templates WHERE id = :id")
+    suspend fun deleteAgreementTemplateById(id: String)
+
     // Counts for DB Health
     @Query("SELECT COUNT(*) FROM branches WHERE archived = 0") suspend fun countBranches(): Int
     @Query("SELECT COUNT(*) FROM categories") suspend fun countCategories(): Int

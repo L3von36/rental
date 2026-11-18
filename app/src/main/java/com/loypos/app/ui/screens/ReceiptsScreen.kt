@@ -29,8 +29,10 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.AssignmentReturn
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.CreditCard
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Payments
 import androidx.compose.material.icons.outlined.PictureAsPdf
+import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material.icons.outlined.ReceiptLong
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.Button
@@ -103,11 +105,13 @@ fun ReceiptsScreen(
     data: LoyPosDataState,
     onOpenReceipt: (String) -> Unit,
     onNavigateToSchedule: () -> Unit = {},
+    onNavigateToQrTracking: () -> Unit = {},
 ) {
     var search by remember { mutableStateOf("") }
     var statusFilterIdx by remember { mutableIntStateOf(0) } // 0=All, 1=Out, 2=Overdue, 3=Returned, 4=Refunded
     var selectedReceiptId by remember { mutableStateOf<String?>(null) }
     var showPdfPreview by remember { mutableStateOf(false) }
+    var showAgreementDialog by remember { mutableStateOf(false) }
     var showRefundDialog by remember { mutableStateOf(false) }
     var showReturnDialog by remember { mutableStateOf(false) }
 
@@ -147,6 +151,19 @@ fun ReceiptsScreen(
             title = { Text("Rentals & Returns", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = LoySurface),
             actions = {
+                IconButton(
+                    onClick = onNavigateToQrTracking,
+                    modifier = Modifier
+                        .accessibleTouchTarget(metrics.minTouchTarget)
+                        .testTag("receipts_qr_button"),
+                ) {
+                    Icon(
+                        Icons.Outlined.QrCodeScanner,
+                        contentDescription = "QR Check-In & Scan",
+                        tint = LoyGreen,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
                 IconButton(
                     onClick = onNavigateToSchedule,
                     modifier = Modifier
@@ -346,6 +363,7 @@ fun ReceiptsScreen(
                                 data = data,
                                 onShareText = { viewModel.shareReceiptText(activeDetail) },
                                 onPreviewPdf = { showPdfPreview = true },
+                                onOpenAgreement = { showAgreementDialog = true },
                                 onMarkReturned = { showReturnDialog = true },
                                 onRequestRefund = { showRefundDialog = true },
                                 modifier = Modifier
@@ -368,6 +386,15 @@ fun ReceiptsScreen(
             viewModel = viewModel,
             receiptWithLines = activeDetail,
             onDismiss = { showPdfPreview = false },
+        )
+    }
+
+    if (showAgreementDialog && activeDetail != null) {
+        PopulatedAgreementDialog(
+            viewModel = viewModel,
+            receiptWithLines = activeDetail,
+            data = data,
+            onDismiss = { showAgreementDialog = false },
         )
     }
 
@@ -420,6 +447,7 @@ fun ReceiptDetailScreen(
     var showRefundDialog by remember { mutableStateOf(false) }
     var showReturnDialog by remember { mutableStateOf(false) }
     var showPdfPreview by remember { mutableStateOf(false) }
+    var showAgreementDialog by remember { mutableStateOf(false) }
     val r = receiptWithLines.receipt
     val metrics = LocalLoyMetrics.current
 
@@ -434,6 +462,14 @@ fun ReceiptDetailScreen(
                     }
                 },
                 actions = {
+                    IconButton(
+                        onClick = { showAgreementDialog = true },
+                        modifier = Modifier
+                            .accessibleTouchTarget(metrics.minTouchTarget)
+                            .testTag("receipt_detail_top_agreement"),
+                    ) {
+                        Icon(Icons.Outlined.Description, contentDescription = "Generate Rental Agreement", tint = LoyGreen, modifier = Modifier.size(20.dp))
+                    }
                     IconButton(
                         onClick = { showPdfPreview = true },
                         modifier = Modifier
@@ -453,6 +489,7 @@ fun ReceiptDetailScreen(
             data = data,
             onShareText = { viewModel.shareReceiptText(receiptWithLines) },
             onPreviewPdf = { showPdfPreview = true },
+            onOpenAgreement = { showAgreementDialog = true },
             onMarkReturned = { showReturnDialog = true },
             onRequestRefund = { showRefundDialog = true },
             modifier = Modifier
@@ -469,6 +506,15 @@ fun ReceiptDetailScreen(
             viewModel = viewModel,
             receiptWithLines = receiptWithLines,
             onDismiss = { showPdfPreview = false },
+        )
+    }
+
+    if (showAgreementDialog) {
+        PopulatedAgreementDialog(
+            viewModel = viewModel,
+            receiptWithLines = receiptWithLines,
+            data = data,
+            onDismiss = { showAgreementDialog = false },
         )
     }
 
@@ -507,6 +553,7 @@ private fun ReceiptDetailContent(
     data: LoyPosDataState,
     onShareText: () -> Unit,
     onPreviewPdf: () -> Unit,
+    onOpenAgreement: () -> Unit,
     onMarkReturned: () -> Unit,
     onRequestRefund: () -> Unit,
     modifier: Modifier = Modifier,
@@ -662,6 +709,18 @@ private fun ReceiptDetailContent(
                 Spacer(Modifier.width(5.dp))
                 Text("Preview PDF")
             }
+        }
+
+        OutlinedButton(
+            onClick = onOpenAgreement,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = metrics.minTouchTarget)
+                .testTag("receipt_detail_agreement_button"),
+        ) {
+            Icon(Icons.Outlined.Description, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("Generate Populated Rental Agreement")
         }
 
         if (r.isRentalOut) {

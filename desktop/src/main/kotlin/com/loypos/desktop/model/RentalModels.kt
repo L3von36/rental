@@ -122,6 +122,51 @@ data class DesktopSettings(
 )
 
 @Serializable
+data class DesktopEquipmentUnit(
+    val id: String,
+    val itemId: String,
+    val itemName: String,
+    val unitCode: String,
+    val qrPayload: String,
+    val status: String = "checked_in", // "checked_in" | "checked_out" | "maintenance"
+    val currentOrderId: String? = null,
+    val currentEventName: String = "",
+    val currentCustomerName: String = "",
+    val conditionNote: String = "",
+    val lastScanAt: Long = 0L,
+    val updatedAt: Long = 0L,
+) {
+    val isCheckedOut: Boolean get() = status == "checked_out"
+    val isMaintenance: Boolean get() = status == "maintenance"
+}
+
+@Serializable
+data class DesktopEquipmentScanLog(
+    val id: String,
+    val unitId: String? = null,
+    val unitCode: String = "",
+    val itemId: String,
+    val itemName: String,
+    val action: String, // "check_out" | "check_in" | "maintenance" | "inspect"
+    val orderId: String? = null,
+    val eventName: String = "",
+    val customerName: String = "",
+    val note: String = "",
+    val createdAt: Long,
+)
+
+@Serializable
+data class DesktopAgreementTemplate(
+    val id: String,
+    val title: String,
+    val category: String = "General Event",
+    val body: String,
+    val isDefault: Boolean = false,
+    val createdAt: Long = 0L,
+    val updatedAt: Long = 0L,
+)
+
+@Serializable
 data class DesktopStoreSnapshot(
     val categories: List<DesktopCategory> = emptyList(),
     val items: List<DesktopEquipment> = emptyList(),
@@ -129,6 +174,9 @@ data class DesktopStoreSnapshot(
     val orders: List<DesktopRentalOrder> = emptyList(),
     val heldQuotes: List<DesktopHeldQuote> = emptyList(),
     val settings: DesktopSettings = DesktopSettings(),
+    val equipmentUnits: List<DesktopEquipmentUnit> = emptyList(),
+    val scanLogs: List<DesktopEquipmentScanLog> = emptyList(),
+    val agreementTemplates: List<DesktopAgreementTemplate> = emptyList(),
 )
 
 // Android-compatible export envelope (loypos-export v1) for seamless Android <-> Desktop transfer

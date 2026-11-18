@@ -326,6 +326,71 @@ data class SettingEntity(
     val value: String,
 )
 
+@Entity(
+    tableName = "equipment_units",
+    indices = [
+        Index(value = ["item_id"]),
+        Index(value = ["unit_code"], unique = true),
+    ],
+)
+data class EquipmentUnitEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "item_id") val itemId: String,
+    @ColumnInfo(name = "item_name") val itemName: String,
+    @ColumnInfo(name = "unit_code") val unitCode: String,
+    @ColumnInfo(name = "qr_payload") val qrPayload: String,
+    val status: String = STATUS_CHECKED_IN,
+    @ColumnInfo(name = "current_receipt_id") val currentReceiptId: String? = null,
+    @ColumnInfo(name = "current_event_name") val currentEventName: String = "",
+    @ColumnInfo(name = "current_customer_name") val currentCustomerName: String = "",
+    @ColumnInfo(name = "condition_note") val conditionNote: String = "",
+    @ColumnInfo(name = "last_scan_at") val lastScanAt: Long = 0L,
+    @ColumnInfo(name = "updated_at") val updatedAt: Long = 0L,
+) {
+    val isCheckedOut: Boolean get() = status == STATUS_CHECKED_OUT
+    val isMaintenance: Boolean get() = status == STATUS_MAINTENANCE
+
+    companion object {
+        const val STATUS_CHECKED_IN = "checked_in"
+        const val STATUS_CHECKED_OUT = "checked_out"
+        const val STATUS_MAINTENANCE = "maintenance"
+    }
+}
+
+@Entity(
+    tableName = "equipment_scan_logs",
+    indices = [
+        Index(value = ["unit_id"]),
+        Index(value = ["item_id"]),
+        Index(value = ["created_at"]),
+    ],
+)
+data class EquipmentScanLogEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "unit_id") val unitId: String? = null,
+    @ColumnInfo(name = "unit_code") val unitCode: String = "",
+    @ColumnInfo(name = "item_id") val itemId: String,
+    @ColumnInfo(name = "item_name") val itemName: String,
+    val action: String, // "check_out" | "check_in" | "maintenance" | "inspect"
+    @ColumnInfo(name = "receipt_id") val receiptId: String? = null,
+    @ColumnInfo(name = "event_name") val eventName: String = "",
+    @ColumnInfo(name = "customer_name") val customerName: String = "",
+    @ColumnInfo(name = "operator_name") val operatorName: String = "",
+    val note: String = "",
+    @ColumnInfo(name = "created_at") val createdAt: Long,
+)
+
+@Entity(tableName = "agreement_templates")
+data class AgreementTemplateEntity(
+    @PrimaryKey val id: String,
+    val title: String,
+    val category: String = "General Event",
+    val body: String,
+    @ColumnInfo(name = "is_default") val isDefault: Boolean = false,
+    @ColumnInfo(name = "created_at") val createdAt: Long = 0L,
+    @ColumnInfo(name = "updated_at") val updatedAt: Long = 0L,
+)
+
 data class CartLine(
     val itemId: String,
     val name: String,

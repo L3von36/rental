@@ -43,6 +43,7 @@ import androidx.compose.material.icons.outlined.LocalOffer
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.PhotoLibrary
+import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.WarningAmber
@@ -133,6 +134,7 @@ fun InventoryScreen(
     session: UiSessionState,
     data: LoyPosDataState,
     onNavigateToStock: () -> Unit,
+    onNavigateToQrTracking: (String?) -> Unit = {},
 ) {
     var tabIndex by remember { mutableIntStateOf(0) }
     val search by viewModel.inventorySearchQuery.collectAsStateWithLifecycle()
@@ -221,6 +223,17 @@ fun InventoryScreen(
                                     modifier = Modifier.size(20.dp),
                                 )
                             }
+                        }
+                        IconButton(
+                            onClick = { onNavigateToQrTracking(null) },
+                            modifier = Modifier.size(42.dp).testTag("inventory_qr_button"),
+                        ) {
+                            Icon(
+                                Icons.Outlined.QrCodeScanner,
+                                contentDescription = "QR Check-In and Tagging",
+                                tint = LoyGreen,
+                                modifier = Modifier.size(20.dp),
+                            )
                         }
                         IconButton(
                             onClick = { showCsvSheet = true },
@@ -549,6 +562,10 @@ fun InventoryScreen(
             product = item,
             isNew = isCreatingItem,
             data = data,
+            onOpenQrUnits = {
+                editingItem = null
+                onNavigateToQrTracking(item.id)
+            },
             onSave = { updated, pickedUri, removePhoto ->
                 viewModel.saveItem(updated, pickedUri, removePhoto)
                 editingItem = null
@@ -617,6 +634,7 @@ private fun ProductEditorBottomSheet(
     product: ProductEntity,
     isNew: Boolean,
     data: LoyPosDataState,
+    onOpenQrUnits: () -> Unit,
     onSave: (ProductEntity, Uri?, Boolean) -> Unit,
     onDelete: () -> Unit,
     onDismiss: () -> Unit,
@@ -885,6 +903,17 @@ private fun ProductEditorBottomSheet(
                             label = { Text(branch.name) },
                         )
                     }
+                }
+            }
+
+            if (!isNew) {
+                OutlinedButton(
+                    onClick = onOpenQrUnits,
+                    modifier = Modifier.fillMaxWidth().height(42.dp).testTag("item_qr_units_button"),
+                ) {
+                    Icon(Icons.Outlined.QrCodeScanner, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("QR Units & Asset Tags")
                 }
             }
 

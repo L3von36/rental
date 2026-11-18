@@ -1,15 +1,20 @@
 package com.loypos.desktop
 
 import com.loypos.desktop.core.DesktopAvailabilityStatus
+import com.loypos.desktop.core.DesktopQrCodeUtils
+import com.loypos.desktop.core.DesktopRentalAgreementEngine
+import com.loypos.desktop.core.ParsedDesktopQrCode
 import com.loypos.desktop.core.buildMonthCalendarGrid
 import com.loypos.desktop.core.checkCartAvailabilityConflicts
 import com.loypos.desktop.core.computeEquipmentAvailabilityForRange
 import com.loypos.desktop.core.computeRentalTotals
 import com.loypos.desktop.core.dayBoundsFor
 import com.loypos.desktop.core.dayStartMs
+import com.loypos.desktop.core.newId
 import com.loypos.desktop.core.schedulesForDate
 import com.loypos.desktop.core.upcomingRentalsFrom
 import com.loypos.desktop.data.DesktopRepository
+import com.loypos.desktop.model.DesktopAgreementTemplate
 import com.loypos.desktop.model.DesktopCartLine
 import java.io.File
 import java.nio.file.Files
@@ -218,6 +223,162 @@ class DesktopRepositoryTest {
                 rangeEndMs = dayStartMs(LocalDate.of(2026, 12, 22)),
             )
             assertTrue(dec20Conflicts.isEmpty())
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun qrCodeGenerationRoundTripAndUnitCheckInOutLifecycle() {
+        val (repo, dir) = tempRepo()
+        try {
+            val tent = repo.state.value.items.first { it.id == "eq-001" }
+            val startStock = tent.stock
+
+            // Pre-seeded units exist
+            assertTrue(repo.state.value.equipmentUnits.isNotEmpty())
+
+            // Generate custom serialized QR unit
+            val created = repo.addEquipmentUnit(
+                itemId = tent.id,
+                customUnitCode = "TENT-2026-99",
+                conditionNote = "Inspected canvas & stakes",
+            ).getOrThrow()
+            assertEquals("checked_in", created.status)
+            assertEquals("LOYPOS:UNIT:${tent.id}:TENT-2026-99", created.qrPayload)
+
+            // Parse QR payload
+            val parsed = DesktopQrCodeUtils.parsePayload(created.qrPayload)
+            assertTrue(parsed is ParsedDesktopQrCode.UnitTag)
+            assertEquals("TENT-2026-99", (parsed as ParsedDesktopQrCode.UnitTag).unitCode)
+
+            // Save PNG sticker and decode QR back from file using ZXing
+            val pngFile = File(dir, "unit-sticker.png")
+            DesktopQrCodeUtils.saveStickerPng(
+                targetFile = pngFile,
+                storeName = repo.state.value.settings.storeName,
+                itemName = tent.name,
+                codeLabel = created.unitCode,
+                subtitle = "SKU ${tent.sku}",
+                qrPayload = created.qrPayload,
+            )
+            assertTrue(pngFile.exists())
+            val decodedText = DesktopQrCodeUtils.decodeQrFromFile(pngFile)
+            assertEquals(created.qrPayload, decodedText)
+
+            // Resolve QR target from decoded payload
+            val target = repo.resolveQrTarget(decodedText!!)
+            assertNotNull(target)
+            assertEquals(created.id, target.unit?.id)
+
+            // Standalone Check-Out deducts 1 unit from available catalog stock and logs scan
+            val checkedOut = repo.processEquipmentScan(
+                unitId = created.id,
+                itemId = tent.id,
+                action = "check_out",
+                order = null,
+                note = "Dispatched to loading bay 2",
+            ).getOrThrow()
+            assertEquals("checked_out", checkedOut.status)
+            assertEquals(startStock - 1.0, repo.state.value.items.first { it.id == tent.id }.stock, 0.001)
+            assertEquals("check_out", repo.state.value.scanLogs.first().action)
+
+            // Check-In restores 1 unit back to catalog stock
+            val checkedIn = repo.processEquipmentScan(
+                unitId = created.id,
+                itemId = tent.id,
+                action = "check_in",
+                order = null,
+                note = "Returned clean and complete",
+            ).getOrThrow()
+            assertEquals("checked_in", checkedIn.status)
+            assertEquals(startStock, repo.state.value.items.first { it.id == tent.id }.stock, 0.001)
+
+            // Order-linked unit check-out does NOT double-deduct stock, and markRentalReturned returns the QR unit
+            val order = repo.checkoutRental(
+                lines = listOf(DesktopCartLine(tent.id, tent.name, tent.priceCents, 1.0, 2)),
+                rentalDays = 2,
+                paymentType = "card",
+                paidCents = 0L,
+                discountPercent = 0.0,
+                fixedDiscountCents = 0L,
+                depositCents = 5_000L,
+                client = repo.state.value.clients.first(),
+                eventName = "Summer Pavilion",
+                eventVenue = "Lakeside Lawn",
+                note = "",
+            )
+            assertEquals(startStock - 1.0, repo.state.value.items.first { it.id == tent.id }.stock, 0.001)
+
+            repo.processEquipmentScan(
+                unitId = created.id,
+                itemId = tent.id,
+                action = "check_out",
+                order = order,
+                note = "Assigned to Summer Pavilion",
+            ).getOrThrow()
+            // Stock remains startStock - 1.0 (no double deduction)
+            assertEquals(startStock - 1.0, repo.state.value.items.first { it.id == tent.id }.stock, 0.001)
+
+            assertTrue(repo.markRentalReturned(order.id))
+            val unitAfterOrderReturn = repo.state.value.equipmentUnits.first { it.id == created.id }
+            assertEquals("checked_in", unitAfterOrderReturn.status)
+            assertEquals(null, unitAfterOrderReturn.currentOrderId)
+            assertEquals(startStock, repo.state.value.items.first { it.id == tent.id }.stock, 0.001)
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun rentalAgreementTemplatesCrudAndAutoPopulation() {
+        val (repo, dir) = tempRepo()
+        try {
+            // Default templates seeded
+            assertTrue(repo.state.value.agreementTemplates.size >= 3)
+            val defaultTpl = repo.state.value.agreementTemplates.first { it.isDefault }
+
+            // Save custom template & switch default
+            val customTpl = DesktopAgreementTemplate(
+                id = newId(),
+                title = "VIP Stage & Generator Agreement",
+                category = "VIP Festival",
+                body = "Agreement #{{order_number}} for {{client_name}} at {{event_venue}} ({{event_name}})\nItems:\n{{equipment_list}}\nTotal: {{total_cost}} | Deposit: {{deposit}}",
+                isDefault = true,
+            )
+            repo.saveAgreementTemplate(customTpl)
+            val savedTpl = repo.state.value.agreementTemplates.first { it.id == customTpl.id }
+            assertTrue(savedTpl.isDefault)
+            assertFalse(repo.state.value.agreementTemplates.first { it.id == defaultTpl.id }.isDefault)
+
+            val tent = repo.state.value.items.first { it.id == "eq-001" }
+            val client = repo.state.value.clients.first()
+            val order = repo.checkoutRental(
+                lines = listOf(DesktopCartLine(tent.id, tent.name, tent.priceCents, 2.0, 3)),
+                rentalDays = 3,
+                paymentType = "cash",
+                paidCents = 0L,
+                discountPercent = 0.0,
+                fixedDiscountCents = 0L,
+                depositCents = 15_000L,
+                client = client,
+                eventName = "City Music Showcase",
+                eventVenue = "Civic Plaza",
+                note = "Stage right access",
+            )
+
+            val populated = DesktopRentalAgreementEngine.populateTemplate(
+                templateBody = savedTpl.body,
+                order = order,
+                client = client,
+                settings = repo.state.value.settings,
+            )
+            assertFalse(populated.contains("{{"))
+            assertTrue(populated.contains(client.name))
+            assertTrue(populated.contains("Civic Plaza"))
+            assertTrue(populated.contains("City Music Showcase"))
+            assertTrue(populated.contains(tent.name))
+            assertTrue(populated.contains("$150.00"))
         } finally {
             dir.deleteRecursively()
         }

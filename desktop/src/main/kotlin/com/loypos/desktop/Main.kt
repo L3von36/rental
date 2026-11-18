@@ -15,9 +15,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ReceiptLong
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Dashboard
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.PeopleOutline
 import androidx.compose.material.icons.outlined.PointOfSale
+import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -49,6 +51,7 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.loypos.desktop.data.DesktopRepository
+import com.loypos.desktop.ui.AgreementTemplatesView
 import com.loypos.desktop.ui.ClientsView
 import com.loypos.desktop.ui.DesktopDashboardView
 import com.loypos.desktop.ui.DesktopSettingsView
@@ -59,6 +62,7 @@ import com.loypos.desktop.ui.LoyGreen
 import com.loypos.desktop.ui.LoyGreenDark
 import com.loypos.desktop.ui.LoyGreenLight
 import com.loypos.desktop.ui.LoySurface
+import com.loypos.desktop.ui.QrTrackingView
 import com.loypos.desktop.ui.RentDeskView
 import com.loypos.desktop.ui.RentalCalendarView
 import com.loypos.desktop.ui.RentalOrdersView
@@ -69,6 +73,8 @@ private enum class DesktopTab(val label: String, val icon: ImageVector) {
     RENT_DESK("Rent Desk", Icons.Outlined.PointOfSale),
     SCHEDULE("Schedule", Icons.Outlined.CalendarMonth),
     RENTALS("Rentals", Icons.AutoMirrored.Outlined.ReceiptLong),
+    QR_TRACKING("QR Track", Icons.Outlined.QrCodeScanner),
+    AGREEMENTS("Contracts", Icons.Outlined.Description),
     EQUIPMENT("Equipment", Icons.Outlined.Inventory2),
     CLIENTS("Clients", Icons.Outlined.PeopleOutline),
     SETTINGS("Settings", Icons.Outlined.Settings),
@@ -175,6 +181,8 @@ private fun DesktopShell(repository: DesktopRepository) {
                         onOpenRentals = { activeTab = DesktopTab.RENTALS },
                         onOpenEquipment = { activeTab = DesktopTab.EQUIPMENT },
                         onOpenSchedule = { activeTab = DesktopTab.SCHEDULE },
+                        onOpenQrTracking = { activeTab = DesktopTab.QR_TRACKING },
+                        onOpenAgreements = { activeTab = DesktopTab.AGREEMENTS },
                     )
                     DesktopTab.RENT_DESK -> RentDeskView(
                         repository = repository,
@@ -198,9 +206,20 @@ private fun DesktopShell(repository: DesktopRepository) {
                         snapshot = snapshot,
                         onToast = ::showToast,
                     )
+                    DesktopTab.QR_TRACKING -> QrTrackingView(
+                        repository = repository,
+                        snapshot = snapshot,
+                        onToast = ::showToast,
+                    )
+                    DesktopTab.AGREEMENTS -> AgreementTemplatesView(
+                        repository = repository,
+                        snapshot = snapshot,
+                        onToast = ::showToast,
+                    )
                     DesktopTab.EQUIPMENT -> EquipmentView(
                         repository = repository,
                         snapshot = snapshot,
+                        onOpenQrTracking = { activeTab = DesktopTab.QR_TRACKING },
                         onToast = ::showToast,
                     )
                     DesktopTab.CLIENTS -> ClientsView(

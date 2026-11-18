@@ -17,9 +17,11 @@ import com.loypos.app.core.InventoryCsvManager
 import com.loypos.app.core.ItemPhotos
 import com.loypos.app.core.LocalBackup
 import com.loypos.app.core.LowStockWorkScheduler
+import com.loypos.app.core.QrCodeUtils
 import com.loypos.app.core.ReceiptPaperFormat
 import com.loypos.app.core.ReceiptPdfGenerator
 import com.loypos.app.core.ReceiptPdfPreviewResult
+import com.loypos.app.core.RentalAgreementEngine
 import com.loypos.app.core.SaleTotals
 import com.loypos.app.core.SalesCsvExporter
 import com.loypos.app.core.SalesCsvReportResult
@@ -30,6 +32,7 @@ import com.loypos.app.core.newId
 import com.loypos.app.core.nowMs
 import com.loypos.app.core.startOfTodayMs
 import com.loypos.app.data.LoyPosRepository
+import com.loypos.app.data.local.AgreementTemplateEntity
 import com.loypos.app.data.local.BackOfficeUserEntity
 import com.loypos.app.data.local.BranchEntity
 import com.loypos.app.data.local.CartLine
@@ -39,7 +42,10 @@ import com.loypos.app.data.local.CustomerEntity
 import com.loypos.app.data.local.DailyRevenuePoint
 import com.loypos.app.data.local.DaySalesSummary
 import com.loypos.app.data.local.DbStats
+import com.loypos.app.data.local.EquipmentScanLogEntity
+import com.loypos.app.data.local.EquipmentUnitEntity
 import com.loypos.app.data.local.ItemEntity
+import com.loypos.app.data.local.ReceiptEntity
 import com.loypos.app.data.local.ReceiptWithLines
 import com.loypos.app.data.local.SettingsModel
 import com.loypos.app.data.local.ShiftEntity
@@ -80,6 +86,9 @@ data class LoyPosDataState(
     val movements: List<StockMovementEntity> = emptyList(),
     val shifts: List<ShiftEntity> = emptyList(),
     val cashMovements: List<CashMovementEntity> = emptyList(),
+    val equipmentUnits: List<EquipmentUnitEntity> = emptyList(),
+    val equipmentScanLogs: List<EquipmentScanLogEntity> = emptyList(),
+    val agreementTemplates: List<AgreementTemplateEntity> = emptyList(),
 )
 
 data class UiSessionState(
@@ -215,11 +224,18 @@ class LoyPosViewModel(application: Application) : AndroidViewModel(application) 
             initialValue = emptyList(),
         )
 
+    private val trackingDataFlow = combine(
+        repo.equipmentUnitsFlow,
+        repo.equipmentScanLogsFlow,
+        repo.agreementTemplatesFlow,
+    ) { units, scanLogs, templates -> Triple(units, scanLogs, templates) }
+
     val dataState: StateFlow<LoyPosDataState> = combine(
         coreDataFlow,
         salesDataFlow,
         shiftDataFlow,
-    ) { core, sales, shiftTriple ->
+        trackingDataFlow,
+    ) { core, sales, shiftTriple, trackingTriple ->
         core.copy(
             customers = sales.first,
             receipts = sales.second,
@@ -229,6 +245,9 @@ class LoyPosViewModel(application: Application) : AndroidViewModel(application) 
             shifts = shiftTriple.first,
             cashMovements = shiftTriple.second,
             backOfficeAdmins = shiftTriple.third,
+            equipmentUnits = trackingTriple.first,
+            equipmentScanLogs = trackingTriple.second,
+            agreementTemplates = trackingTriple.third,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -1368,5 +1387,166 @@ class LoyPosViewModel(application: Application) : AndroidViewModel(application) 
     fun checkForAppUpdatesNow() {
         com.loypos.app.core.GithubUpdateWorker.checkNow(appContext)
         showMessage("Checking GitHub releases for updates...")
+    }
+
+    // --- QR Code Unit Check-In / Check-Out & Labels ---
+    fun addEquipmentUnit(
+        itemId: String,
+        customCode: String = "",
+        conditionNote: String = "",
+        onDone: (EquipmentUnitEntity?) -> Unit = {},
+    ) {
+        viewModelScope.launch {
+            repo.addEquipmentUnit(itemId, customCode, conditionNote)
+                .onSuccess { unit ->
+                    showMessage("Created QR unit tag ${unit.unitCode}")
+                    onDone(unit)
+                }
+                .onFailure {
+                    showMessage(it.message ?: "Could not create unit tag")
+                    onDone(null)
+                }
+        }
+    }
+
+    fun deleteEquipmentUnit(unitId: String) {
+        viewModelScope.launch {
+            repo.deleteEquipmentUnit(unitId)
+            showMessage("Removed equipment unit tag")
+        }
+    }
+
+    fun resolveQrCode(rawCode: String, onResult: (LoyPosRepository.ResolvedQrTarget?) -> Unit) {
+        viewModelScope.launch {
+            val target = repo.resolveQrTarget(rawCode)
+            onResult(target)
+        }
+    }
+
+    fun processEquipmentScan(
+        unitId: String?,
+        itemId: String,
+        action: String,
+        receipt: ReceiptEntity? = null,
+        note: String = "",
+        adjustStock: Boolean = receipt == null,
+        onDone: (EquipmentUnitEntity?) -> Unit = {},
+    ) {
+        val operator = _session.value.currentUser?.let { it.ownerName.ifEmpty { it.email } } ?: "Operator"
+        viewModelScope.launch {
+            repo.processEquipmentUnitScan(
+                unitId = unitId,
+                itemId = itemId,
+                action = action,
+                receipt = receipt,
+                note = note,
+                adjustStock = adjustStock,
+                operatorName = operator,
+            ).onSuccess { updated ->
+                val verb = when (action) {
+                    "check_out" -> "Checked out"
+                    "check_in" -> "Checked in"
+                    "maintenance" -> "Flagged for maintenance"
+                    else -> "Inspected"
+                }
+                showMessage("$verb ${updated.unitCode} (${updated.itemName})")
+                onDone(updated)
+            }.onFailure {
+                showMessage(it.message ?: "Scan action failed")
+                onDone(null)
+            }
+        }
+    }
+
+    fun shareEquipmentQrSticker(
+        itemName: String,
+        codeLabel: String,
+        subtitle: String,
+        qrPayload: String,
+    ) {
+        val storeName = dataState.value.settings.storeName
+        viewModelScope.launch {
+            runCatching {
+                val file = withContext(Dispatchers.IO) {
+                    QrCodeUtils.createStickerPngFile(
+                        context = appContext,
+                        storeName = storeName,
+                        itemName = itemName,
+                        codeLabel = codeLabel,
+                        subtitle = subtitle,
+                        qrPayload = qrPayload,
+                    )
+                }
+                withContext(Dispatchers.Main) {
+                    QrCodeUtils.sharePngFile(appContext, file, "QR Tag · $codeLabel")
+                }
+            }.onFailure {
+                showMessage("Could not export QR sticker: ${it.message}")
+            }
+        }
+    }
+
+    // --- Digital Rental Agreement Templates ---
+    fun saveAgreementTemplate(template: AgreementTemplateEntity) {
+        viewModelScope.launch {
+            repo.saveAgreementTemplate(template)
+            showMessage("Saved template: ${template.title}")
+        }
+    }
+
+    fun duplicateAgreementTemplate(source: AgreementTemplateEntity) {
+        val now = nowMs()
+        viewModelScope.launch {
+            repo.saveAgreementTemplate(
+                source.copy(
+                    id = newId(),
+                    title = "${source.title} (Copy)",
+                    isDefault = false,
+                    createdAt = now,
+                    updatedAt = now,
+                )
+            )
+            showMessage("Template duplicated")
+        }
+    }
+
+    fun setDefaultAgreementTemplate(templateId: String) {
+        viewModelScope.launch {
+            repo.setDefaultAgreementTemplate(templateId)
+            showMessage("Updated default rental agreement template")
+        }
+    }
+
+    fun deleteAgreementTemplate(templateId: String) {
+        viewModelScope.launch {
+            repo.deleteAgreementTemplate(templateId)
+            showMessage("Agreement template deleted")
+        }
+    }
+
+    fun shareAgreementText(title: String, populatedText: String) {
+        runCatching {
+            RentalAgreementEngine.shareAgreementText(appContext, title, populatedText)
+        }.onFailure {
+            showMessage("Could not share contract: ${it.message}")
+        }
+    }
+
+    fun shareAgreementPdf(title: String, orderLabel: String, populatedText: String) {
+        viewModelScope.launch {
+            runCatching {
+                val file = RentalAgreementEngine.createAgreementPdfFile(
+                    context = appContext,
+                    title = title,
+                    orderLabel = orderLabel,
+                    populatedText = populatedText,
+                )
+                withContext(Dispatchers.Main) {
+                    RentalAgreementEngine.shareAgreementPdf(appContext, file, title)
+                }
+            }.onFailure {
+                showMessage("Could not export agreement PDF: ${it.message}")
+            }
+        }
     }
 }

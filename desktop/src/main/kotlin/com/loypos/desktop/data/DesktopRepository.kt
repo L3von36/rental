@@ -1,6 +1,9 @@
 package com.loypos.desktop.data
 
 import com.loypos.desktop.core.DemoRentalCatalog
+import com.loypos.desktop.core.DesktopQrCodeUtils
+import com.loypos.desktop.core.DesktopRentalAgreementEngine
+import com.loypos.desktop.core.ParsedDesktopQrCode
 import com.loypos.desktop.core.computeRentalTotals
 import com.loypos.desktop.core.formatCents
 import com.loypos.desktop.core.formatDateTime
@@ -8,10 +11,13 @@ import com.loypos.desktop.core.formatQty
 import com.loypos.desktop.core.formatShortDate
 import com.loypos.desktop.core.newId
 import com.loypos.desktop.core.nowMs
+import com.loypos.desktop.model.DesktopAgreementTemplate
 import com.loypos.desktop.model.DesktopCartLine
 import com.loypos.desktop.model.DesktopCategory
 import com.loypos.desktop.model.DesktopClient
 import com.loypos.desktop.model.DesktopEquipment
+import com.loypos.desktop.model.DesktopEquipmentScanLog
+import com.loypos.desktop.model.DesktopEquipmentUnit
 import com.loypos.desktop.model.DesktopHeldQuote
 import com.loypos.desktop.model.DesktopRentalLine
 import com.loypos.desktop.model.DesktopRentalOrder
@@ -55,7 +61,17 @@ class DesktopRepository(
                 val raw = storeFile.readText(Charsets.UTF_8)
                 val parsed = json.decodeFromString<DesktopStoreSnapshot>(raw)
                 if (parsed.items.isNotEmpty() || parsed.categories.isNotEmpty()) {
-                    return parsed
+                    val now = nowMs()
+                    val hydrated = parsed.copy(
+                        agreementTemplates = parsed.agreementTemplates.ifEmpty {
+                            DesktopRentalAgreementEngine.defaultTemplates(now)
+                        },
+                        equipmentUnits = parsed.equipmentUnits.ifEmpty {
+                            buildInitialUnits(parsed.items, now)
+                        },
+                    )
+                    if (hydrated != parsed) saveSnapshot(hydrated)
+                    return hydrated
                 }
             } catch (_: Exception) {
             }
@@ -65,15 +81,36 @@ class DesktopRepository(
         return initial
     }
 
+    private fun buildInitialUnits(items: List<DesktopEquipment>, now: Long): List<DesktopEquipmentUnit> =
+        items.flatMap { item ->
+            val count = item.stock.toInt().coerceIn(1, 3)
+            (1..count).map { idx ->
+                val unitCode = DesktopQrCodeUtils.buildDefaultUnitCode(item.sku, item.id, idx)
+                DesktopEquipmentUnit(
+                    id = "unit-${item.id}-$idx",
+                    itemId = item.id,
+                    itemName = item.name,
+                    unitCode = unitCode,
+                    qrPayload = DesktopQrCodeUtils.buildUnitPayload(item.id, unitCode),
+                    status = "checked_in",
+                    updatedAt = now,
+                )
+            }
+        }
+
     private fun buildDefaultSnapshot(): DesktopStoreSnapshot {
         val now = nowMs()
+        val items = DemoRentalCatalog.buildEquipment(now)
         return DesktopStoreSnapshot(
             categories = DemoRentalCatalog.buildCategories(),
-            items = DemoRentalCatalog.buildEquipment(now),
+            items = items,
             clients = DemoRentalCatalog.buildClients(now),
             orders = emptyList(),
             heldQuotes = emptyList(),
             settings = DesktopSettings(),
+            equipmentUnits = buildInitialUnits(items, now),
+            scanLogs = emptyList(),
+            agreementTemplates = DesktopRentalAgreementEngine.defaultTemplates(now),
         )
     }
 
@@ -210,7 +247,42 @@ class DesktopRepository(
             val updatedOrders = snap.orders.map { o ->
                 if (o.id == orderId) o.copy(rentalStatus = "returned", returnedAtMs = returnedTime) else o
             }
-            snap.copy(items = updatedItems, orders = updatedOrders)
+            val returningUnits = snap.equipmentUnits.filter { it.currentOrderId == orderId }
+            val updatedUnits = snap.equipmentUnits.map { u ->
+                if (u.currentOrderId == orderId) {
+                    u.copy(
+                        status = "checked_in",
+                        currentOrderId = null,
+                        currentEventName = "",
+                        currentCustomerName = "",
+                        lastScanAt = returnedTime,
+                        updatedAt = returnedTime,
+                    )
+                } else {
+                    u
+                }
+            }
+            val extraLogs = returningUnits.map { u ->
+                DesktopEquipmentScanLog(
+                    id = newId(),
+                    unitId = u.id,
+                    unitCode = u.unitCode,
+                    itemId = u.itemId,
+                    itemName = u.itemName,
+                    action = "check_in",
+                    orderId = orderId,
+                    eventName = target.eventName,
+                    customerName = target.customerName ?: "",
+                    note = "Returned with order #${target.number.toString().padStart(4, '0')}",
+                    createdAt = returnedTime,
+                )
+            }
+            snap.copy(
+                items = updatedItems,
+                orders = updatedOrders,
+                equipmentUnits = updatedUnits,
+                scanLogs = (extraLogs + snap.scanLogs).take(200),
+            )
         }
         return true
     }
@@ -330,6 +402,262 @@ class DesktopRepository(
                     cloudSyncToken = current.settings.cloudSyncToken,
                 ),
             )
+        }
+    }
+
+    // --- QR Code Unit Tracking (Check-In / Check-Out) ---
+    data class DesktopResolvedQrTarget(
+        val item: DesktopEquipment,
+        val unit: DesktopEquipmentUnit?,
+        val matchedCode: String,
+    )
+
+    fun resolveQrTarget(rawCode: String): DesktopResolvedQrTarget? {
+        val code = rawCode.trim()
+        if (code.isEmpty()) return null
+        val snap = _state.value
+        val parsed = DesktopQrCodeUtils.parsePayload(code)
+        return when (parsed) {
+            is ParsedDesktopQrCode.UnitTag -> {
+                val unit = snap.equipmentUnits.firstOrNull {
+                    it.unitCode.equals(parsed.unitCode, ignoreCase = true) ||
+                        it.qrPayload.equals(code, ignoreCase = true)
+                }
+                val item = (unit?.itemId ?: parsed.itemId)?.let { id ->
+                    snap.items.firstOrNull { it.id == id }
+                } ?: unit?.let { u -> snap.items.firstOrNull { it.id == u.itemId } }
+                if (item != null) DesktopResolvedQrTarget(item, unit, parsed.unitCode) else null
+            }
+            is ParsedDesktopQrCode.EquipmentTag -> {
+                val item = parsed.itemId?.let { id -> snap.items.firstOrNull { it.id == id } }
+                    ?: snap.items.firstOrNull {
+                        it.sku.equals(parsed.skuOrCode, ignoreCase = true) ||
+                            it.barcode.equals(parsed.skuOrCode, ignoreCase = true)
+                    }
+                if (item != null) DesktopResolvedQrTarget(item, null, parsed.skuOrCode) else null
+            }
+            is ParsedDesktopQrCode.RawCode -> {
+                val unit = snap.equipmentUnits.firstOrNull {
+                    it.unitCode.equals(parsed.code, ignoreCase = true) ||
+                        it.qrPayload.equals(parsed.code, ignoreCase = true) ||
+                        it.id == parsed.code
+                }
+                if (unit != null) {
+                    val item = snap.items.firstOrNull { it.id == unit.itemId }
+                    if (item != null) return DesktopResolvedQrTarget(item, unit, unit.unitCode)
+                }
+                val item = snap.items.firstOrNull {
+                    it.id == parsed.code ||
+                        it.sku.equals(parsed.code, ignoreCase = true) ||
+                        it.barcode.equals(parsed.code, ignoreCase = true) ||
+                        it.name.equals(parsed.code, ignoreCase = true)
+                }
+                if (item != null) DesktopResolvedQrTarget(item, null, parsed.code) else null
+            }
+        }
+    }
+
+    fun addEquipmentUnit(
+        itemId: String,
+        customUnitCode: String = "",
+        conditionNote: String = "",
+    ): Result<DesktopEquipmentUnit> {
+        val snap = _state.value
+        val item = snap.items.firstOrNull { it.id == itemId }
+            ?: return Result.failure(IllegalArgumentException("Equipment item not found"))
+        val existingForItem = snap.equipmentUnits.filter { it.itemId == itemId }
+        val used = snap.equipmentUnits.map { it.unitCode.lowercase() }.toSet()
+        val unitCode = customUnitCode.trim().ifEmpty {
+            var idx = existingForItem.size + 1
+            var candidate = DesktopQrCodeUtils.buildDefaultUnitCode(item.sku, item.id, idx)
+            while (candidate.lowercase() in used) {
+                idx++
+                candidate = DesktopQrCodeUtils.buildDefaultUnitCode(item.sku, item.id, idx)
+            }
+            candidate
+        }
+        if (unitCode.lowercase() in used) {
+            return Result.failure(IllegalStateException("Unit code $unitCode already exists"))
+        }
+        val now = nowMs()
+        val created = DesktopEquipmentUnit(
+            id = newId(),
+            itemId = item.id,
+            itemName = item.name,
+            unitCode = unitCode,
+            qrPayload = DesktopQrCodeUtils.buildUnitPayload(item.id, unitCode),
+            status = "checked_in",
+            conditionNote = conditionNote.trim(),
+            updatedAt = now,
+        )
+        mutate { cur -> cur.copy(equipmentUnits = cur.equipmentUnits + created) }
+        return Result.success(created)
+    }
+
+    fun deleteEquipmentUnit(unitId: String) {
+        mutate { cur -> cur.copy(equipmentUnits = cur.equipmentUnits.filterNot { it.id == unitId }) }
+    }
+
+    fun processEquipmentScan(
+        unitId: String?,
+        itemId: String,
+        action: String, // "check_out" | "check_in" | "maintenance" | "inspect"
+        order: DesktopRentalOrder? = null,
+        note: String = "",
+        adjustStock: Boolean = order == null,
+    ): Result<DesktopEquipmentUnit> {
+        val item = _state.value.items.firstOrNull { it.id == itemId }
+            ?: return Result.failure(IllegalArgumentException("Equipment item not found"))
+        val now = nowMs()
+        var resultUnit: DesktopEquipmentUnit? = null
+
+        mutate { cur ->
+            val existingUnit = when {
+                unitId != null -> cur.equipmentUnits.firstOrNull { it.id == unitId }
+                action == "check_out" -> cur.equipmentUnits.firstOrNull { it.itemId == itemId && it.status == "checked_in" }
+                action == "check_in" -> cur.equipmentUnits.firstOrNull { it.itemId == itemId && it.status == "checked_out" }
+                    ?: cur.equipmentUnits.firstOrNull { it.itemId == itemId }
+                else -> cur.equipmentUnits.firstOrNull { it.itemId == itemId }
+            }
+
+            val baseUnit = existingUnit ?: run {
+                val existingForItem = cur.equipmentUnits.filter { it.itemId == itemId }
+                val code = DesktopQrCodeUtils.buildDefaultUnitCode(item.sku, item.id, existingForItem.size + 1)
+                DesktopEquipmentUnit(
+                    id = newId(),
+                    itemId = item.id,
+                    itemName = item.name,
+                    unitCode = code,
+                    qrPayload = DesktopQrCodeUtils.buildUnitPayload(item.id, code),
+                    status = "checked_in",
+                    updatedAt = now,
+                )
+            }
+
+            val wasCheckedOut = baseUnit.status == "checked_out"
+            val nextStatus = when (action) {
+                "check_out" -> "checked_out"
+                "check_in" -> "checked_in"
+                "maintenance" -> "maintenance"
+                else -> baseUnit.status
+            }
+
+            val updatedUnit = baseUnit.copy(
+                itemName = item.name,
+                status = nextStatus,
+                currentOrderId = if (action == "check_out") order?.id else if (action == "check_in" || action == "maintenance") null else baseUnit.currentOrderId,
+                currentEventName = if (action == "check_out") (order?.eventName ?: "") else if (action == "check_in" || action == "maintenance") "" else baseUnit.currentEventName,
+                currentCustomerName = if (action == "check_out") (order?.customerName ?: "") else if (action == "check_in" || action == "maintenance") "" else baseUnit.currentCustomerName,
+                conditionNote = note.trim().ifEmpty { baseUnit.conditionNote },
+                lastScanAt = now,
+                updatedAt = now,
+            )
+            resultUnit = updatedUnit
+
+            val updatedUnits = if (cur.equipmentUnits.any { it.id == updatedUnit.id }) {
+                cur.equipmentUnits.map { if (it.id == updatedUnit.id) updatedUnit else it }
+            } else {
+                cur.equipmentUnits + updatedUnit
+            }
+
+            val updatedItems = if (adjustStock && item.trackStock) {
+                cur.items.map { i ->
+                    if (i.id != item.id) {
+                        i
+                    } else if (action == "check_out" && !wasCheckedOut && order == null && i.stock > 0.0) {
+                        i.copy(stock = (i.stock - 1.0).coerceAtLeast(0.0))
+                    } else if (action == "check_in" && wasCheckedOut && baseUnit.currentOrderId == null) {
+                        i.copy(stock = i.stock + 1.0)
+                    } else {
+                        i
+                    }
+                }
+            } else {
+                cur.items
+            }
+
+            val log = DesktopEquipmentScanLog(
+                id = newId(),
+                unitId = updatedUnit.id,
+                unitCode = updatedUnit.unitCode,
+                itemId = item.id,
+                itemName = item.name,
+                action = action,
+                orderId = order?.id ?: baseUnit.currentOrderId,
+                eventName = order?.eventName?.ifEmpty { baseUnit.currentEventName } ?: baseUnit.currentEventName,
+                customerName = order?.customerName ?: baseUnit.currentCustomerName,
+                note = note.trim(),
+                createdAt = now,
+            )
+
+            cur.copy(
+                items = updatedItems,
+                equipmentUnits = updatedUnits,
+                scanLogs = (listOf(log) + cur.scanLogs).take(200),
+            )
+        }
+        return Result.success(resultUnit!!)
+    }
+
+    // --- Digital Rental Agreement Templates ---
+    fun saveAgreementTemplate(template: DesktopAgreementTemplate) {
+        val now = nowMs()
+        val clean = template.copy(
+            title = template.title.trim().ifEmpty { "Untitled Rental Agreement" },
+            category = template.category.trim().ifEmpty { "General Event" },
+            createdAt = if (template.createdAt == 0L) now else template.createdAt,
+            updatedAt = now,
+        )
+        mutate { cur ->
+            val exists = cur.agreementTemplates.any { it.id == clean.id }
+            val updatedList = if (exists) {
+                cur.agreementTemplates.map {
+                    when {
+                        it.id == clean.id -> clean
+                        clean.isDefault -> it.copy(isDefault = false)
+                        else -> it
+                    }
+                }
+            } else {
+                val existing = if (clean.isDefault) cur.agreementTemplates.map { it.copy(isDefault = false) } else cur.agreementTemplates
+                listOf(clean) + existing
+            }
+            cur.copy(agreementTemplates = updatedList)
+        }
+    }
+
+    fun setDefaultAgreementTemplate(templateId: String) {
+        mutate { cur ->
+            cur.copy(
+                agreementTemplates = cur.agreementTemplates.map {
+                    it.copy(isDefault = it.id == templateId)
+                }
+            )
+        }
+    }
+
+    fun duplicateAgreementTemplate(source: DesktopAgreementTemplate): DesktopAgreementTemplate {
+        val now = nowMs()
+        val copy = source.copy(
+            id = newId(),
+            title = "${source.title} (Copy)",
+            isDefault = false,
+            createdAt = now,
+            updatedAt = now,
+        )
+        saveAgreementTemplate(copy)
+        return copy
+    }
+
+    fun deleteAgreementTemplate(templateId: String) {
+        mutate { cur ->
+            val remaining = cur.agreementTemplates.filterNot { it.id == templateId }
+            val normalized = if (remaining.isNotEmpty() && remaining.none { it.isDefault }) {
+                remaining.mapIndexed { idx, t -> if (idx == 0) t.copy(isDefault = true) else t }
+            } else {
+                remaining
+            }
+            cur.copy(agreementTemplates = normalized)
         }
     }
 

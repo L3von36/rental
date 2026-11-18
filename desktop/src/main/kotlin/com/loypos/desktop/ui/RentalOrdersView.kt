@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.AssignmentReturn
 import androidx.compose.material.icons.automirrored.outlined.ReceiptLong
 import androidx.compose.material.icons.automirrored.outlined.Undo
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Print
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
@@ -75,6 +76,7 @@ fun RentalOrdersView(
     var confirmReturnId by remember { mutableStateOf<String?>(null) }
     var confirmRefundId by remember { mutableStateOf<String?>(null) }
     var previewReceiptOrder by remember { mutableStateOf<DesktopRentalOrder?>(null) }
+    var agreementOrder by remember { mutableStateOf<DesktopRentalOrder?>(null) }
 
     val now = remember(snapshot.orders) { nowMs() }
     val filtered = remember(snapshot.orders, search, filterIdx, now) {
@@ -291,6 +293,14 @@ fun RentalOrdersView(
                             Spacer(Modifier.width(6.dp))
                             Text("Receipt Copy")
                         }
+                        OutlinedButton(
+                            onClick = { agreementOrder = order },
+                            modifier = Modifier.weight(1f).height(42.dp),
+                        ) {
+                            Icon(Icons.Outlined.Description, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Agreement")
+                        }
                         if (order.isCompleted) {
                             OutlinedButton(
                                 onClick = { confirmRefundId = order.id },
@@ -298,7 +308,7 @@ fun RentalOrdersView(
                             ) {
                                 Icon(Icons.AutoMirrored.Outlined.Undo, contentDescription = null, modifier = Modifier.size(16.dp), tint = LoyError)
                                 Spacer(Modifier.width(6.dp))
-                                Text("Refund Booking", color = LoyError)
+                                Text("Refund", color = LoyError)
                             }
                         }
                     }
@@ -353,6 +363,15 @@ fun RentalOrdersView(
             confirmButton = {
                 Button(onClick = { previewReceiptOrder = null }) { Text("Close") }
             },
+        )
+    }
+
+    agreementOrder?.let { order ->
+        DesktopPopulatedAgreementDialog(
+            order = order,
+            snapshot = snapshot,
+            onToast = onToast,
+            onDismiss = { agreementOrder = null },
         )
     }
 }

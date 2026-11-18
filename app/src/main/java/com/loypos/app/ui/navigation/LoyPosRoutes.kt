@@ -71,3 +71,8 @@ data object BackOfficeReceiptsRoute
 @Serializable
 data class BackOfficeReceiptDetailRoute(val receiptId: String)
 
+@Serializable
+data class QrTrackingRoute(val initialItemId: String? = null)
+
+@Serializable
+data object AgreementsRoute

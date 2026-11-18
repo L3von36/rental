@@ -27,10 +27,12 @@ import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.AdminPanelSettings
 import androidx.compose.material.icons.outlined.Assessment
 import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.PeopleOutline
 import androidx.compose.material.icons.outlined.PointOfSale
+import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material.icons.outlined.ReceiptLong
 import androidx.compose.material.icons.outlined.RestartAlt
 import androidx.compose.material.icons.outlined.Storefront
@@ -132,6 +134,8 @@ fun DashboardScreen(
     onNavigateToCustomers: () -> Unit,
     onNavigateToReports: () -> Unit,
     onNavigateToSchedule: () -> Unit = {},
+    onNavigateToQrTracking: () -> Unit = {},
+    onNavigateToAgreements: () -> Unit = {},
     onNavigateToReceipts: () -> Unit,
     onNavigateToReceiptDetail: (String) -> Unit,
 ) {
@@ -176,12 +180,16 @@ fun DashboardScreen(
         onNavigateToCheckout,
         onNavigateToInventory,
         onNavigateToSchedule,
+        onNavigateToQrTracking,
+        onNavigateToAgreements,
         onNavigateToShift,
         onNavigateToCustomers,
         onNavigateToReports,
     ) {
         listOf(
             QuickActionItem("Rent Desk", Icons.Outlined.PointOfSale, "dash_action_checkout", onNavigateToCheckout),
+            QuickActionItem("QR Track", Icons.Outlined.QrCodeScanner, "dash_action_qr_tracking", onNavigateToQrTracking),
+            QuickActionItem("Contracts", Icons.Outlined.Description, "dash_action_agreements", onNavigateToAgreements),
             QuickActionItem("Schedule", Icons.Outlined.CalendarMonth, "dash_action_schedule", onNavigateToSchedule),
             QuickActionItem("Back Office", Icons.Outlined.AdminPanelSettings, "dash_action_backoffice") {
                 viewModel.openBackOffice()

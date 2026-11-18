@@ -18,6 +18,10 @@ import com.loypos.app.core.newId
 import com.loypos.app.core.nowMs
 import com.loypos.app.core.pointsForTotal
 import com.loypos.app.core.startOfTodayMs
+import com.loypos.app.core.ParsedQrCode
+import com.loypos.app.core.QrCodeUtils
+import com.loypos.app.core.RentalAgreementEngine
+import com.loypos.app.data.local.AgreementTemplateEntity
 import com.loypos.app.data.local.BackOfficeUserEntity
 import com.loypos.app.data.local.BranchEntity
 import com.loypos.app.data.local.CartLine
@@ -26,6 +30,8 @@ import com.loypos.app.data.local.CategoryEntity
 import com.loypos.app.data.local.CustomerEntity
 import com.loypos.app.data.local.DailyRevenuePoint
 import com.loypos.app.data.local.DbStats
+import com.loypos.app.data.local.EquipmentScanLogEntity
+import com.loypos.app.data.local.EquipmentUnitEntity
 import com.loypos.app.data.local.ItemEntity
 import com.loypos.app.data.local.LoyPosDatabase
 import com.loypos.app.data.local.ProductEntity
@@ -75,6 +81,8 @@ class LoyPosRepository(private val context: Context) {
         val existingSettings = dao.getAllSettings()
         if (existingSettings.none { it.key == "store_name" }) {
             LoyPosDatabase.seedDefaults(db)
+        } else {
+            LoyPosDatabase.seedDefaultUnitsAndTemplates(db)
         }
     }
 
@@ -114,6 +122,9 @@ class LoyPosRepository(private val context: Context) {
     val stockMovementsFlow: Flow<List<StockMovementEntity>> = dao.observeRecentStockMovements()
     val shiftsFlow: Flow<List<ShiftEntity>> = dao.observeShifts()
     val cashMovementsFlow: Flow<List<CashMovementEntity>> = dao.observeCashMovements()
+    val equipmentUnitsFlow: Flow<List<EquipmentUnitEntity>> = dao.observeEquipmentUnits()
+    val equipmentScanLogsFlow: Flow<List<EquipmentScanLogEntity>> = dao.observeEquipmentScanLogs()
+    val agreementTemplatesFlow: Flow<List<AgreementTemplateEntity>> = dao.observeAgreementTemplates()
 
     val receiptsWithLinesFlow: Flow<List<ReceiptWithLines>> = saleDao.observeSalesWithItems()
 
@@ -990,6 +1001,34 @@ class LoyPosRepository(private val context: Context) {
                     )
                 )
             }
+            val checkedOutUnits = dao.getAllEquipmentUnits().filter { it.currentReceiptId == receiptId }
+            checkedOutUnits.forEach { unit ->
+                dao.upsertEquipmentUnit(
+                    unit.copy(
+                        status = EquipmentUnitEntity.STATUS_CHECKED_IN,
+                        currentReceiptId = null,
+                        currentEventName = "",
+                        currentCustomerName = "",
+                        lastScanAt = now,
+                        updatedAt = now,
+                    )
+                )
+                dao.insertEquipmentScanLog(
+                    EquipmentScanLogEntity(
+                        id = newId(),
+                        unitId = unit.id,
+                        unitCode = unit.unitCode,
+                        itemId = unit.itemId,
+                        itemName = unit.itemName,
+                        action = "check_in",
+                        receiptId = receiptId,
+                        eventName = receipt.eventName,
+                        customerName = receipt.customerName ?: "",
+                        note = "Returned with order #${receipt.number.toString().padStart(4, '0')}",
+                        createdAt = now,
+                    )
+                )
+            }
             restored = true
         }
         return restored
@@ -1087,6 +1126,238 @@ class LoyPosRepository(private val context: Context) {
             cashOutCents = cashOut,
             movements = shiftMoves,
         )
+    }
+
+    // --- QR Code Unit Tracking (Check-In / Check-Out) ---
+    data class ResolvedQrTarget(
+        val item: ProductEntity,
+        val unit: EquipmentUnitEntity?,
+        val matchedCode: String,
+    )
+
+    suspend fun resolveQrTarget(rawCode: String): ResolvedQrTarget? {
+        val code = rawCode.trim()
+        if (code.isEmpty()) return null
+        val parsed = QrCodeUtils.parsePayload(code)
+        val allProducts = productDao.getAllProducts().filter { !it.archived }
+        val allUnits = dao.getAllEquipmentUnits()
+
+        return when (parsed) {
+            is ParsedQrCode.UnitTag -> {
+                val unit = allUnits.firstOrNull {
+                    it.unitCode.equals(parsed.unitCode, ignoreCase = true) ||
+                        it.qrPayload.equals(code, ignoreCase = true)
+                }
+                val item = (unit?.itemId ?: parsed.itemId)?.let { id ->
+                    allProducts.firstOrNull { it.id == id }
+                } ?: unit?.let { u -> allProducts.firstOrNull { it.id == u.itemId } }
+                if (item != null) ResolvedQrTarget(item, unit, parsed.unitCode) else null
+            }
+            is ParsedQrCode.EquipmentTag -> {
+                val item = parsed.itemId?.let { id -> allProducts.firstOrNull { it.id == id } }
+                    ?: allProducts.firstOrNull {
+                        it.sku.equals(parsed.skuOrCode, ignoreCase = true) ||
+                            it.barcode.equals(parsed.skuOrCode, ignoreCase = true)
+                    }
+                if (item != null) ResolvedQrTarget(item, null, parsed.skuOrCode) else null
+            }
+            is ParsedQrCode.RawCode -> {
+                val unit = allUnits.firstOrNull {
+                    it.unitCode.equals(parsed.code, ignoreCase = true) ||
+                        it.qrPayload.equals(parsed.code, ignoreCase = true) ||
+                        it.id == parsed.code
+                }
+                if (unit != null) {
+                    val item = allProducts.firstOrNull { it.id == unit.itemId }
+                    if (item != null) return ResolvedQrTarget(item, unit, unit.unitCode)
+                }
+                val item = allProducts.firstOrNull {
+                    it.id == parsed.code ||
+                        it.sku.equals(parsed.code, ignoreCase = true) ||
+                        it.barcode.equals(parsed.code, ignoreCase = true) ||
+                        it.name.equals(parsed.code, ignoreCase = true)
+                }
+                if (item != null) ResolvedQrTarget(item, null, parsed.code) else null
+            }
+        }
+    }
+
+    suspend fun addEquipmentUnit(
+        itemId: String,
+        customUnitCode: String = "",
+        conditionNote: String = "",
+    ): Result<EquipmentUnitEntity> {
+        val item = productDao.getProductById(itemId)
+            ?: return Result.failure(IllegalArgumentException("Equipment item not found"))
+        val existing = dao.getEquipmentUnitsForItem(itemId)
+        val unitCode = customUnitCode.trim().ifEmpty {
+            var idx = existing.size + 1
+            var candidate = QrCodeUtils.buildDefaultUnitCode(item.sku, item.id, idx)
+            val usedCodes = dao.getAllEquipmentUnits().map { it.unitCode.lowercase() }.toSet()
+            while (candidate.lowercase() in usedCodes) {
+                idx++
+                candidate = QrCodeUtils.buildDefaultUnitCode(item.sku, item.id, idx)
+            }
+            candidate
+        }
+        val conflict = dao.getEquipmentUnitByCode(unitCode)
+        if (conflict != null) {
+            return Result.failure(IllegalStateException("Unit code $unitCode already exists"))
+        }
+        val now = nowMs()
+        val unit = EquipmentUnitEntity(
+            id = newId(),
+            itemId = item.id,
+            itemName = item.name,
+            unitCode = unitCode,
+            qrPayload = QrCodeUtils.buildUnitPayload(item.id, unitCode),
+            status = EquipmentUnitEntity.STATUS_CHECKED_IN,
+            conditionNote = conditionNote.trim(),
+            updatedAt = now,
+        )
+        dao.upsertEquipmentUnit(unit)
+        return Result.success(unit)
+    }
+
+    suspend fun deleteEquipmentUnit(unitId: String) {
+        dao.deleteEquipmentUnitById(unitId)
+    }
+
+    suspend fun processEquipmentUnitScan(
+        unitId: String?,
+        itemId: String,
+        action: String, // "check_out" | "check_in" | "maintenance" | "inspect"
+        receipt: ReceiptEntity? = null,
+        note: String = "",
+        adjustStock: Boolean = true,
+        operatorName: String = "",
+    ): Result<EquipmentUnitEntity> {
+        val item = productDao.getProductById(itemId)
+            ?: return Result.failure(IllegalArgumentException("Equipment not found"))
+        val now = nowMs()
+        val targetUnit: EquipmentUnitEntity = db.withTransaction {
+            val existingUnit = when {
+                unitId != null -> dao.getEquipmentUnitById(unitId)
+                action == "check_out" -> dao.getEquipmentUnitsForItem(itemId)
+                    .firstOrNull { it.status == EquipmentUnitEntity.STATUS_CHECKED_IN }
+                action == "check_in" -> dao.getEquipmentUnitsForItem(itemId)
+                    .firstOrNull { it.status == EquipmentUnitEntity.STATUS_CHECKED_OUT }
+                    ?: dao.getEquipmentUnitsForItem(itemId).firstOrNull()
+                else -> dao.getEquipmentUnitsForItem(itemId).firstOrNull()
+            }
+
+            val resolvedUnit = existingUnit ?: run {
+                val existingList = dao.getEquipmentUnitsForItem(itemId)
+                val code = QrCodeUtils.buildDefaultUnitCode(item.sku, item.id, existingList.size + 1)
+                EquipmentUnitEntity(
+                    id = newId(),
+                    itemId = item.id,
+                    itemName = item.name,
+                    unitCode = code,
+                    qrPayload = QrCodeUtils.buildUnitPayload(item.id, code),
+                    status = EquipmentUnitEntity.STATUS_CHECKED_IN,
+                    updatedAt = now,
+                )
+            }
+
+            val wasCheckedOut = resolvedUnit.status == EquipmentUnitEntity.STATUS_CHECKED_OUT
+            val nextStatus = when (action) {
+                "check_out" -> EquipmentUnitEntity.STATUS_CHECKED_OUT
+                "check_in" -> EquipmentUnitEntity.STATUS_CHECKED_IN
+                "maintenance" -> EquipmentUnitEntity.STATUS_MAINTENANCE
+                else -> resolvedUnit.status
+            }
+
+            val updatedUnit = resolvedUnit.copy(
+                itemName = item.name,
+                status = nextStatus,
+                currentReceiptId = if (action == "check_out") receipt?.id else if (action == "check_in" || action == "maintenance") null else resolvedUnit.currentReceiptId,
+                currentEventName = if (action == "check_out") (receipt?.eventName ?: "") else if (action == "check_in" || action == "maintenance") "" else resolvedUnit.currentEventName,
+                currentCustomerName = if (action == "check_out") (receipt?.customerName ?: "") else if (action == "check_in" || action == "maintenance") "" else resolvedUnit.currentCustomerName,
+                conditionNote = note.trim().ifEmpty { resolvedUnit.conditionNote },
+                lastScanAt = now,
+                updatedAt = now,
+            )
+            dao.upsertEquipmentUnit(updatedUnit)
+
+            if (adjustStock && item.trackStock) {
+                if (action == "check_out" && !wasCheckedOut && receipt == null && item.stock > 0.0) {
+                    productDao.adjustProductStock(item.id, -1.0, now)
+                    dao.insertStockMovement(
+                        StockMovementEntity(
+                            id = newId(),
+                            itemId = item.id,
+                            qty = -1.0,
+                            type = "rental",
+                            createdAt = now,
+                            note = "QR Check-Out (${updatedUnit.unitCode})",
+                        )
+                    )
+                } else if (action == "check_in" && wasCheckedOut && resolvedUnit.currentReceiptId == null) {
+                    productDao.adjustProductStock(item.id, 1.0, now)
+                    dao.insertStockMovement(
+                        StockMovementEntity(
+                            id = newId(),
+                            itemId = item.id,
+                            qty = 1.0,
+                            type = "return",
+                            createdAt = now,
+                            note = "QR Check-In (${updatedUnit.unitCode})",
+                        )
+                    )
+                }
+            }
+
+            dao.insertEquipmentScanLog(
+                EquipmentScanLogEntity(
+                    id = newId(),
+                    unitId = updatedUnit.id,
+                    unitCode = updatedUnit.unitCode,
+                    itemId = item.id,
+                    itemName = item.name,
+                    action = action,
+                    receiptId = receipt?.id ?: resolvedUnit.currentReceiptId,
+                    eventName = receipt?.eventName?.ifEmpty { resolvedUnit.currentEventName } ?: resolvedUnit.currentEventName,
+                    customerName = receipt?.customerName ?: resolvedUnit.currentCustomerName,
+                    operatorName = operatorName,
+                    note = note.trim(),
+                    createdAt = now,
+                )
+            )
+            updatedUnit
+        }
+        return Result.success(targetUnit)
+    }
+
+    // --- Digital Rental Agreement Templates ---
+    suspend fun saveAgreementTemplate(template: AgreementTemplateEntity) {
+        val now = nowMs()
+        db.withTransaction {
+            val clean = template.copy(
+                title = template.title.trim().ifEmpty { "Untitled Rental Agreement" },
+                category = template.category.trim().ifEmpty { "General Event" },
+                createdAt = if (template.createdAt == 0L) now else template.createdAt,
+                updatedAt = now,
+            )
+            dao.upsertAgreementTemplate(clean)
+            if (clean.isDefault) {
+                dao.setDefaultAgreementTemplate(clean.id)
+            }
+        }
+    }
+
+    suspend fun setDefaultAgreementTemplate(templateId: String) {
+        dao.setDefaultAgreementTemplate(templateId)
+    }
+
+    suspend fun deleteAgreementTemplate(templateId: String) {
+        db.withTransaction {
+            dao.deleteAgreementTemplateById(templateId)
+            val remaining = dao.getAllAgreementTemplates()
+            if (remaining.isNotEmpty() && remaining.none { it.isDefault }) {
+                dao.setDefaultAgreementTemplate(remaining.first().id)
+            }
+        }
     }
 
     // --- Storage Health, Import Replace, Reset ---

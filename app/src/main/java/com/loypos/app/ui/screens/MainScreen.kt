@@ -48,6 +48,7 @@ import com.loypos.app.ui.LoyPosViewModel
 import com.loypos.app.ui.TransactionViewModel
 import com.loypos.app.ui.UiSessionState
 import com.loypos.app.ui.navigation.AccountRoute
+import com.loypos.app.ui.navigation.AgreementsRoute
 import com.loypos.app.ui.navigation.CalendarRoute
 import com.loypos.app.ui.navigation.CartRoute
 import com.loypos.app.ui.navigation.CheckoutRoute
@@ -55,6 +56,7 @@ import com.loypos.app.ui.navigation.CustomersRoute
 import com.loypos.app.ui.navigation.DashboardRoute
 import com.loypos.app.ui.navigation.InventoryRoute
 import com.loypos.app.ui.navigation.PaymentRoute
+import com.loypos.app.ui.navigation.QrTrackingRoute
 import com.loypos.app.ui.navigation.ReceiptDetailRoute
 import com.loypos.app.ui.navigation.ReceiptSuccessRoute
 import com.loypos.app.ui.navigation.ReceiptsRoute
@@ -215,6 +217,8 @@ fun MainScreen(
                                 onNavigateToCustomers = { navController.navigate(CustomersRoute) },
                                 onNavigateToReports = { navController.navigate(ReportsRoute) },
                                 onNavigateToSchedule = { navController.navigate(CalendarRoute) },
+                                onNavigateToQrTracking = { navController.navigate(QrTrackingRoute()) },
+                                onNavigateToAgreements = { navController.navigate(AgreementsRoute) },
                                 onNavigateToReceipts = { navigateToTopLevel(ReceiptsRoute) },
                                 onNavigateToReceiptDetail = { receiptId ->
                                     navController.navigate(ReceiptDetailRoute(receiptId))
@@ -240,6 +244,9 @@ fun MainScreen(
                                 session = session,
                                 data = data,
                                 onNavigateToStock = { navController.navigate(StockRoute) },
+                                onNavigateToQrTracking = { itemId ->
+                                    navController.navigate(QrTrackingRoute(initialItemId = itemId))
+                                },
                             )
                         }
 
@@ -252,6 +259,7 @@ fun MainScreen(
                                     navController.navigate(ReceiptDetailRoute(receiptId))
                                 },
                                 onNavigateToSchedule = { navController.navigate(CalendarRoute) },
+                                onNavigateToQrTracking = { navController.navigate(QrTrackingRoute()) },
                             )
                         }
 
@@ -277,6 +285,8 @@ fun MainScreen(
                                 onNavigateToCustomers = { navController.navigate(CustomersRoute) },
                                 onNavigateToReports = { navController.navigate(ReportsRoute) },
                                 onNavigateToShift = { navController.navigate(ShiftRoute) },
+                                onNavigateToQrTracking = { navController.navigate(QrTrackingRoute()) },
+                                onNavigateToAgreements = { navController.navigate(AgreementsRoute) },
                             )
                         }
 
@@ -376,6 +386,24 @@ fun MainScreen(
                                 onBookOnDate = {
                                     navigateToTopLevel(CheckoutRoute)
                                 },
+                            )
+                        }
+
+                        composable<QrTrackingRoute> { entry ->
+                            val args = entry.toRoute<QrTrackingRoute>()
+                            QrTrackingScreen(
+                                viewModel = viewModel,
+                                data = data,
+                                initialItemId = args.initialItemId,
+                                onBack = { navController.popBackStack() },
+                            )
+                        }
+
+                        composable<AgreementsRoute> {
+                            AgreementTemplatesScreen(
+                                viewModel = viewModel,
+                                data = data,
+                                onBack = { navController.popBackStack() },
                             )
                         }
                     }

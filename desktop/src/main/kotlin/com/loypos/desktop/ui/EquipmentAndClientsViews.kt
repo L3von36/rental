@@ -28,6 +28,7 @@ import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.PeopleOutline
+import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.RestartAlt
 import androidx.compose.material.icons.outlined.Search
@@ -88,6 +89,8 @@ fun DesktopDashboardView(
     onOpenRentals: () -> Unit,
     onOpenEquipment: () -> Unit,
     onOpenSchedule: () -> Unit = {},
+    onOpenQrTracking: () -> Unit = {},
+    onOpenAgreements: () -> Unit = {},
 ) {
     val sym = snapshot.settings.currencySymbol
     val now = remember(snapshot.orders) { nowMs() }
@@ -110,6 +113,12 @@ fun DesktopDashboardView(
                 Text("Multi-day event equipment rental management for Desktop & Mobile", style = MaterialTheme.typography.bodySmall, color = LoyTextSecondary)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onOpenQrTracking) {
+                    Text("QR Track")
+                }
+                OutlinedButton(onClick = onOpenAgreements) {
+                    Text("Contracts")
+                }
                 OutlinedButton(onClick = onOpenSchedule) {
                     Text("Schedule Calendar")
                 }
@@ -210,6 +219,7 @@ private fun KpiCard(label: String, value: String, valueColor: Color, modifier: M
 fun EquipmentView(
     repository: DesktopRepository,
     snapshot: DesktopStoreSnapshot,
+    onOpenQrTracking: () -> Unit = {},
     onToast: (String) -> Unit,
 ) {
     val sym = snapshot.settings.currencySymbol
@@ -242,6 +252,11 @@ fun EquipmentView(
                         singleLine = true,
                         modifier = Modifier.weight(1f),
                     )
+                    OutlinedButton(onClick = onOpenQrTracking) {
+                        Icon(Icons.Outlined.QrCodeScanner, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("QR Tags")
+                    }
                     Button(onClick = {
                         isNew = true
                         editing = DesktopEquipment(
