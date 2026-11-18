@@ -68,10 +68,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.loypos.app.core.RentalTimeframeFilter
 import com.loypos.app.core.formatCents
 import com.loypos.app.core.formatCentsShort
 import com.loypos.app.core.formatDateTime
 import com.loypos.app.core.nowMs
+import com.loypos.app.core.searchRentalAgreements
 import com.loypos.app.data.local.DailyRevenuePoint
 import com.loypos.app.ui.LoyPosDataState
 import com.loypos.app.ui.LoyPosViewModel
@@ -94,6 +96,7 @@ import kotlin.math.roundToLong
 import com.loypos.app.ui.components.BranchPickerSheet
 import com.loypos.app.ui.components.EmptyState
 import com.loypos.app.ui.components.EquipmentUtilizationChartCard
+import com.loypos.app.ui.components.GlobalRentalSearchBar
 import com.loypos.app.ui.components.GroupCard
 import com.loypos.app.ui.components.MonthlyRentalIncomeChartCard
 import com.loypos.app.ui.components.PillBadge
@@ -140,8 +143,11 @@ fun DashboardScreen(
     onNavigateToAgreements: () -> Unit = {},
     onNavigateToReceipts: () -> Unit,
     onNavigateToReceiptDetail: (String) -> Unit,
+    onOpenHeldQuote: (String) -> Unit = {},
 ) {
     var showBranchSheet by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var searchTimeframe by remember { mutableStateOf(RentalTimeframeFilter.ALL) }
 
     val sym = data.settings.currencySymbol
     val branchId = session.activeBranchId
@@ -172,6 +178,32 @@ fun DashboardScreen(
     }
     val overdueCount = remember(branchReceipts, currentTimeMs) {
         branchReceipts.count { it.receipt.isOverdue(currentTimeMs) }
+    }
+
+    val agreementSearchOutput = remember(
+        searchQuery,
+        searchTimeframe,
+        data.receipts,
+        data.tickets,
+        data.items,
+        data.customers,
+        data.equipmentUnits,
+        data.equipmentScanLogs,
+        branchId,
+        currentTimeMs,
+    ) {
+        searchRentalAgreements(
+            query = searchQuery,
+            timeframeFilter = searchTimeframe,
+            receipts = data.receipts,
+            tickets = data.tickets,
+            products = data.items,
+            customers = data.customers,
+            equipmentUnits = data.equipmentUnits,
+            scanLogs = data.equipmentScanLogs,
+            branchId = branchId,
+            nowMs = currentTimeMs,
+        )
     }
 
     val trendDays by viewModel.revenueTrendDays.collectAsStateWithLifecycle()
@@ -310,6 +342,27 @@ fun DashboardScreen(
             contentPadding = PaddingValues(metrics.screenPadding),
             verticalArrangement = Arrangement.spacedBy(metrics.sectionGap),
         ) {
+            // Global Rental Agreement Search Bar
+            item {
+                GlobalRentalSearchBar(
+                    query = searchQuery,
+                    onQueryChange = { searchQuery = it },
+                    selectedTimeframe = searchTimeframe,
+                    onSelectTimeframe = { searchTimeframe = it },
+                    searchOutput = agreementSearchOutput,
+                    currencySymbol = sym,
+                    onSelectAgreement = { result ->
+                        if (result.isHeldQuote) {
+                            onOpenHeldQuote(result.id)
+                        } else {
+                            onNavigateToReceiptDetail(result.id)
+                        }
+                    },
+                    onViewAllRentals = onNavigateToReceipts,
+                    testTagPrefix = "dashboard_search",
+                )
+            }
+
             // Today's Overview
             item {
                 SectionHeader("Today's Overview")

@@ -77,11 +77,14 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.loypos.app.core.RentalTimeframeFilter
 import com.loypos.app.core.formatCents
 import com.loypos.app.core.formatCentsShort
 import com.loypos.app.core.formatDateTime
 import com.loypos.app.core.formatQty
+import com.loypos.app.core.nowMs
 import com.loypos.app.core.parseAmountToCents
+import com.loypos.app.core.searchRentalAgreements
 import com.loypos.app.core.startOfTodayMs
 import com.loypos.app.data.local.DailyRevenuePoint
 import com.loypos.app.ui.LoyPosDataState
@@ -89,6 +92,7 @@ import com.loypos.app.ui.LoyPosViewModel
 import com.loypos.app.ui.UiSessionState
 import com.loypos.app.ui.components.EmptyState
 import com.loypos.app.ui.components.EquipmentUtilizationChartCard
+import com.loypos.app.ui.components.GlobalRentalSearchBar
 import com.loypos.app.ui.components.GroupCard
 import com.loypos.app.ui.components.MonthlyRentalIncomeChartCard
 import com.loypos.app.ui.components.PillBadge
@@ -156,12 +160,15 @@ fun BackOfficeDashboardScreen(
     onNavigateToAdmin: () -> Unit,
     onSwitchToPos: () -> Unit,
     onLockBackOffice: () -> Unit,
+    onNavigateToReceiptDetail: (String) -> Unit = {},
 ) {
     val sym = data.settings.currencySymbol
     val boUser = session.backOfficeUser
     val selectedBranchId = session.backOfficeBranchFilterId
     var periodIdx by remember { mutableIntStateOf(1) } // 0=Today, 1=7d, 2=30d, 3=All
     var showGoalDialog by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var searchTimeframe by remember { mutableStateOf(RentalTimeframeFilter.ALL) }
 
     val todaySummary = remember(data.receipts, selectedBranchId) {
         viewModel.computeTodaySummary(data, selectedBranchId)
@@ -261,6 +268,30 @@ fun BackOfficeDashboardScreen(
     val activeBranchLabel = remember(data.branches, selectedBranchId) {
         if (selectedBranchId == null) "All Branches"
         else data.branches.firstOrNull { it.id == selectedBranchId }?.name ?: "Selected Branch"
+    }
+    val boSearchOutput = remember(
+        searchQuery,
+        searchTimeframe,
+        data.receipts,
+        data.tickets,
+        data.items,
+        data.customers,
+        data.equipmentUnits,
+        data.equipmentScanLogs,
+        selectedBranchId,
+    ) {
+        searchRentalAgreements(
+            query = searchQuery,
+            timeframeFilter = searchTimeframe,
+            receipts = data.receipts,
+            tickets = data.tickets,
+            products = data.items,
+            customers = data.customers,
+            equipmentUnits = data.equipmentUnits,
+            scanLogs = data.equipmentScanLogs,
+            branchId = selectedBranchId,
+            nowMs = nowMs(),
+        )
     }
     val windowSize = LocalLoyWindowSize.current
     val metrics = LocalLoyMetrics.current
@@ -384,6 +415,29 @@ fun BackOfficeDashboardScreen(
             contentPadding = PaddingValues(metrics.screenPadding),
             verticalArrangement = Arrangement.spacedBy(metrics.sectionGap),
         ) {
+            // Global Rental Agreement Search Bar
+            item {
+                GlobalRentalSearchBar(
+                    query = searchQuery,
+                    onQueryChange = { searchQuery = it },
+                    selectedTimeframe = searchTimeframe,
+                    onSelectTimeframe = { searchTimeframe = it },
+                    searchOutput = boSearchOutput,
+                    currencySymbol = sym,
+                    onSelectAgreement = { result ->
+                        if (result.isHeldQuote) {
+                            onSwitchToPos()
+                        } else {
+                            onNavigateToReceiptDetail(result.id)
+                        }
+                    },
+                    onViewAllRentals = onNavigateToReceipts,
+                    accentColor = BackOfficeTeal,
+                    accentLight = BackOfficeTealLight,
+                    testTagPrefix = "bo_dashboard_search",
+                )
+            }
+
             // Period filter + Executive Financial Summary
             item {
                 Row(

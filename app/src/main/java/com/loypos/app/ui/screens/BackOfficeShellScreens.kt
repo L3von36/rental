@@ -254,6 +254,9 @@ fun BackOfficeMainScreen(
                                 onNavigateToAdmin = { navigateToTab(BackOfficeAdminRoute) },
                                 onSwitchToPos = { viewModel.switchToPos() },
                                 onLockBackOffice = { viewModel.signOutBackOffice() },
+                                onNavigateToReceiptDetail = { receiptId ->
+                                    navController.navigate(BackOfficeReceiptDetailRoute(receiptId))
+                                },
                             )
                         }
 

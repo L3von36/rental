@@ -65,12 +65,23 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.QrCode2
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.ui.text.font.FontFamily
+import com.loypos.desktop.core.DesktopRentalAgreementSearchResult
+import com.loypos.desktop.core.DesktopRentalAgreementTimeframe
+import com.loypos.desktop.core.DesktopRentalTimeframeFilter
 import com.loypos.desktop.core.formatCents
 import com.loypos.desktop.core.formatDateTime
 import com.loypos.desktop.core.formatQty
+import com.loypos.desktop.core.formatShortDate
 import com.loypos.desktop.core.newId
 import com.loypos.desktop.core.nowMs
 import com.loypos.desktop.core.parseAmountToCents
+import com.loypos.desktop.core.searchDesktopRentalAgreements
 import com.loypos.desktop.data.DesktopRepository
 import com.loypos.desktop.model.DesktopClient
 import com.loypos.desktop.model.DesktopEquipment
@@ -81,8 +92,6 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import javax.swing.JFileChooser
 import javax.swing.filechooser.FileNameExtensionFilter
-
-import androidx.compose.material3.LinearProgressIndicator
 import kotlin.math.roundToInt
 
 @Composable
@@ -96,8 +105,34 @@ fun DesktopDashboardView(
     onOpenAgreements: () -> Unit = {},
 ) {
     val sym = snapshot.settings.currencySymbol
+    var agreementSearchQuery by remember { mutableStateOf("") }
+    var agreementTimeframeFilter by remember { mutableStateOf(DesktopRentalTimeframeFilter.ALL) }
+    var selectedSearchResult by remember { mutableStateOf<DesktopRentalAgreementSearchResult?>(null) }
     val now = remember(snapshot.orders) { nowMs() }
     val completed = remember(snapshot.orders) { snapshot.orders.filter { it.isCompleted } }
+    val agreementSearchOutput = remember(
+        agreementSearchQuery,
+        agreementTimeframeFilter,
+        snapshot.orders,
+        snapshot.heldQuotes,
+        snapshot.items,
+        snapshot.clients,
+        snapshot.equipmentUnits,
+        snapshot.scanLogs,
+        now,
+    ) {
+        searchDesktopRentalAgreements(
+            query = agreementSearchQuery,
+            timeframeFilter = agreementTimeframeFilter,
+            orders = snapshot.orders,
+            heldQuotes = snapshot.heldQuotes,
+            items = snapshot.items,
+            clients = snapshot.clients,
+            equipmentUnits = snapshot.equipmentUnits,
+            scanLogs = snapshot.scanLogs,
+            nowMs = now,
+        )
+    }
     val netRevenueCents = completed.sumOf { it.totalCents }
     val activeOutCount = completed.count { it.isRentalOut }
     val overdueCount = completed.count { it.isOverdue(now) }
@@ -157,6 +192,179 @@ fun DesktopDashboardView(
                 }
                 Button(onClick = onOpenRentDesk) {
                     Text("Open Rent Desk")
+                }
+            }
+        }
+
+        // Global Rental Agreement Search Bar
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = LoySurface,
+            border = BorderStroke(
+                1.dp,
+                if (agreementSearchQuery.isNotBlank() || agreementTimeframeFilter != DesktopRentalTimeframeFilter.ALL) LoyGreenDark.copy(alpha = 0.5f) else LoyBorder,
+            ),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(Icons.Outlined.Description, contentDescription = null, tint = LoyGreenDark, modifier = Modifier.size(18.dp))
+                        Text("Find Rental Agreements", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    }
+                    Text(
+                        "${agreementSearchOutput.allCount} total · ${agreementSearchOutput.currentCount} current · ${agreementSearchOutput.futureCount} future · ${agreementSearchOutput.pastCount} past",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = LoyTextSecondary,
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OutlinedTextField(
+                        value = agreementSearchQuery,
+                        onValueChange = { agreementSearchQuery = it },
+                        placeholder = { Text("Search past, current, or future agreements by customer name or equipment ID (e.g. eq-001, TENT-2020)...") },
+                        leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = "Search rental agreements", tint = LoyGreenDark) },
+                        trailingIcon = {
+                            if (agreementSearchQuery.isNotEmpty()) {
+                                IconButton(onClick = { agreementSearchQuery = "" }) {
+                                    Icon(Icons.Outlined.Close, contentDescription = "Clear search")
+                                }
+                            }
+                        },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(
+                            DesktopRentalTimeframeFilter.ALL to agreementSearchOutput.allCount,
+                            DesktopRentalTimeframeFilter.CURRENT to agreementSearchOutput.currentCount,
+                            DesktopRentalTimeframeFilter.FUTURE to agreementSearchOutput.futureCount,
+                            DesktopRentalTimeframeFilter.PAST to agreementSearchOutput.pastCount,
+                        ).forEach { (tf, cnt) ->
+                            val selected = agreementTimeframeFilter == tf
+                            FilterChip(
+                                selected = selected,
+                                onClick = {
+                                    agreementTimeframeFilter = if (selected && tf != DesktopRentalTimeframeFilter.ALL) {
+                                        DesktopRentalTimeframeFilter.ALL
+                                    } else tf
+                                },
+                                label = { Text("${tf.label} ($cnt)") },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = LoyGreenLight,
+                                    selectedLabelColor = LoyGreenDark,
+                                ),
+                            )
+                        }
+                    }
+                }
+
+                val showResults = agreementSearchQuery.isNotBlank() || agreementTimeframeFilter != DesktopRentalTimeframeFilter.ALL
+                if (showResults) {
+                    HorizontalDivider(color = LoyBorder)
+                    if (agreementSearchOutput.results.isEmpty()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "No matching rental agreements. Try another customer name, equipment ID/SKU, or timeframe.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = LoyTextSecondary,
+                            )
+                            TextButton(onClick = {
+                                agreementSearchQuery = ""
+                                agreementTimeframeFilter = DesktopRentalTimeframeFilter.ALL
+                            }) { Text("Reset") }
+                        }
+                    } else {
+                        agreementSearchOutput.results.take(8).forEachIndexed { idx, res ->
+                            if (idx > 0) HorizontalDivider(color = LoyBorder)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { selectedSearchResult = res }
+                                    .padding(vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Text(res.agreementNumberLabel, fontWeight = FontWeight.Bold, color = LoyGreenDark)
+                                        Surface(
+                                            shape = RoundedCornerShape(999.dp),
+                                            color = when {
+                                                res.isRefunded || res.isOverdue -> LoyErrorLight
+                                                res.timeframe == DesktopRentalAgreementTimeframe.CURRENT -> LoyWarningLight
+                                                res.timeframe == DesktopRentalAgreementTimeframe.FUTURE -> Color(0xFFE3F2FD)
+                                                else -> LoyGreenLight
+                                            },
+                                        ) {
+                                            Text(
+                                                "${res.timeframe.label} · ${res.statusBadge}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = when {
+                                                    res.isRefunded || res.isOverdue -> LoyError
+                                                    res.timeframe == DesktopRentalAgreementTimeframe.CURRENT -> LoyWarning
+                                                    res.timeframe == DesktopRentalAgreementTimeframe.FUTURE -> LoyInfo
+                                                    else -> LoyGreenDark
+                                                },
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                            )
+                                        }
+                                        Text(res.customerName, fontWeight = FontWeight.SemiBold)
+                                        if (res.eventName.isNotBlank()) {
+                                            Text("· ${res.eventName}", style = MaterialTheme.typography.bodySmall, color = LoyTextSecondary)
+                                        }
+                                    }
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            "${formatShortDate(res.rentalStartMs)} → ${formatShortDate(res.rentalEndMs)} (${res.rentalDays}d)",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = LoyTextSecondary,
+                                        )
+                                        if (res.equipmentIds.isNotEmpty()) {
+                                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                res.equipmentIds.take(4).forEach { eqId ->
+                                                    Surface(shape = RoundedCornerShape(6.dp), color = LoyBackground) {
+                                                        Row(
+                                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                                        ) {
+                                                            Icon(Icons.Outlined.QrCode2, contentDescription = null, modifier = Modifier.size(11.dp), tint = LoyTextSecondary)
+                                                            Text(eqId, style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace))
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        formatCents(res.totalCents, sym),
+                                        style = TabularMoneyStyle,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (res.isRefunded) LoyError else LoyTextPrimary,
+                                    )
+                                    Text("View details", style = MaterialTheme.typography.labelSmall, color = LoyGreenDark)
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -301,6 +509,41 @@ fun DesktopDashboardView(
                 }
             }
         }
+    }
+
+    selectedSearchResult?.let { res ->
+        AlertDialog(
+            onDismissRequest = { selectedSearchResult = null },
+            title = { Text("${res.agreementNumberLabel} · ${res.customerName}") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Status: ${res.timeframe.label} (${res.statusBadge})", fontWeight = FontWeight.SemiBold)
+                    if (res.eventName.isNotBlank()) Text("Event: ${res.eventName}${if (res.eventVenue.isNotBlank()) " @ ${res.eventVenue}" else ""}")
+                    Text("Dates: ${formatShortDate(res.rentalStartMs)} → ${formatShortDate(res.rentalEndMs)} (${res.rentalDays} days)")
+                    Text("Total: ${formatCents(res.totalCents, sym)}", fontWeight = FontWeight.Bold)
+                    if (res.equipmentIds.isNotEmpty()) {
+                        Text("Equipment IDs: ${res.equipmentIds.joinToString(", ")}", style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (res.equipmentSummaries.isNotEmpty()) {
+                        HorizontalDivider(color = LoyBorder)
+                        res.equipmentSummaries.forEach { line ->
+                            Text("• $line", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    selectedSearchResult = null
+                    if (res.isHeldQuote) onOpenRentDesk() else onOpenRentals()
+                }) {
+                    Text(if (res.isHeldQuote) "Open Rent Desk" else "Open in Rentals")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { selectedSearchResult = null }) { Text("Close") }
+            },
+        )
     }
 }
 

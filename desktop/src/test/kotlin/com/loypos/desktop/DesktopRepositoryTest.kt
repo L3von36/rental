@@ -3,6 +3,8 @@ package com.loypos.desktop
 import com.loypos.desktop.core.DesktopAvailabilityStatus
 import com.loypos.desktop.core.DesktopQrCodeUtils
 import com.loypos.desktop.core.DesktopRentalAgreementEngine
+import com.loypos.desktop.core.DesktopRentalAgreementTimeframe
+import com.loypos.desktop.core.DesktopRentalTimeframeFilter
 import com.loypos.desktop.core.ParsedDesktopQrCode
 import com.loypos.desktop.core.buildMonthCalendarGrid
 import com.loypos.desktop.core.checkCartAvailabilityConflicts
@@ -12,10 +14,12 @@ import com.loypos.desktop.core.dayBoundsFor
 import com.loypos.desktop.core.dayStartMs
 import com.loypos.desktop.core.newId
 import com.loypos.desktop.core.schedulesForDate
+import com.loypos.desktop.core.searchDesktopRentalAgreements
 import com.loypos.desktop.core.upcomingRentalsFrom
 import com.loypos.desktop.data.DesktopRepository
 import com.loypos.desktop.model.DesktopAgreementTemplate
 import com.loypos.desktop.model.DesktopCartLine
+import com.loypos.desktop.model.DesktopClient
 import java.io.File
 import java.nio.file.Files
 import java.time.LocalDate
@@ -418,6 +422,137 @@ class DesktopRepositoryTest {
             val tentCategory = util.first { it.id == tent.categoryId }
             assertTrue(tentCategory.utilizationPercent > 0.0)
             assertTrue(tentCategory.activeOutUnits >= 2.0)
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun globalSearchFiltersPastCurrentFutureAgreementsByCustomerAndEquipmentId() {
+        val (repo, dir) = tempRepo()
+        try {
+            val tent = repo.state.value.items.first { it.id == "eq-001" }
+            val chair = repo.state.value.items.first { it.id == "eq-008" }
+            val light = repo.state.value.items.first { it.id == "eq-022" }
+            val fixedNow = 1_760_000_000_000L
+
+            val clientPast = DesktopClient(id = "c-past", name = "Atlas Events")
+            val clientCurrent = DesktopClient(id = "c-curr", name = "Sunrise Weddings")
+            val clientFuture = DesktopClient(id = "c-fut", name = "Metro Gala Co")
+
+            // Past (returned)
+            val pastOrder = repo.checkoutRental(
+                lines = listOf(DesktopCartLine(tent.id, tent.name, tent.priceCents, 1.0, 2)),
+                rentalDays = 2,
+                paymentType = "cash",
+                paidCents = 0L,
+                discountPercent = 0.0,
+                fixedDiscountCents = 0L,
+                depositCents = 0L,
+                client = clientPast,
+                eventName = "Spring Expo",
+                eventVenue = "North Hall",
+                note = "",
+                rentalStartMs = fixedNow - 5L * 86_400_000L,
+            )
+            repo.markRentalReturned(pastOrder.id)
+
+            // Current (active out now)
+            val currentOrder = repo.checkoutRental(
+                lines = listOf(DesktopCartLine(chair.id, chair.name, chair.priceCents, 20.0, 3)),
+                rentalDays = 3,
+                paymentType = "card",
+                paidCents = 0L,
+                discountPercent = 0.0,
+                fixedDiscountCents = 0L,
+                depositCents = 0L,
+                client = clientCurrent,
+                eventName = "Sunrise Ceremony",
+                eventVenue = "Lakeview",
+                note = "",
+                rentalStartMs = fixedNow - 86_400_000L,
+            )
+
+            // Future (scheduled ahead)
+            val futureOrder = repo.checkoutRental(
+                lines = listOf(DesktopCartLine(light.id, light.name, light.priceCents, 4.0, 2)),
+                rentalDays = 2,
+                paymentType = "card",
+                paidCents = 0L,
+                discountPercent = 0.0,
+                fixedDiscountCents = 0L,
+                depositCents = 0L,
+                client = clientFuture,
+                eventName = "New Year Stage",
+                eventVenue = "Arena",
+                note = "",
+                rentalStartMs = fixedNow + 7L * 86_400_000L,
+            )
+
+            val snap = repo.state.value
+            val all = searchDesktopRentalAgreements(
+                query = "",
+                timeframeFilter = DesktopRentalTimeframeFilter.ALL,
+                orders = snap.orders,
+                heldQuotes = snap.heldQuotes,
+                items = snap.items,
+                clients = snap.clients,
+                equipmentUnits = snap.equipmentUnits,
+                scanLogs = snap.scanLogs,
+                nowMs = fixedNow,
+            )
+            assertEquals(3, all.allCount)
+            assertEquals(1, all.currentCount)
+            assertEquals(1, all.futureCount)
+            assertEquals(1, all.pastCount)
+
+            // Filter by customer name
+            val byCustomer = searchDesktopRentalAgreements(
+                query = "Sunrise",
+                timeframeFilter = DesktopRentalTimeframeFilter.ALL,
+                orders = snap.orders,
+                heldQuotes = snap.heldQuotes,
+                items = snap.items,
+                clients = snap.clients,
+                equipmentUnits = snap.equipmentUnits,
+                scanLogs = snap.scanLogs,
+                nowMs = fixedNow,
+            )
+            assertEquals(1, byCustomer.results.size)
+            assertEquals(currentOrder.id, byCustomer.results.first().id)
+            assertEquals(DesktopRentalAgreementTimeframe.CURRENT, byCustomer.results.first().timeframe)
+
+            // Filter by equipment ID (eq-022) & Future timeframe
+            val byEqIdFuture = searchDesktopRentalAgreements(
+                query = light.id,
+                timeframeFilter = DesktopRentalTimeframeFilter.FUTURE,
+                orders = snap.orders,
+                heldQuotes = snap.heldQuotes,
+                items = snap.items,
+                clients = snap.clients,
+                equipmentUnits = snap.equipmentUnits,
+                scanLogs = snap.scanLogs,
+                nowMs = fixedNow,
+            )
+            assertEquals(1, byEqIdFuture.results.size)
+            assertEquals(futureOrder.id, byEqIdFuture.results.first().id)
+            assertEquals(DesktopRentalAgreementTimeframe.FUTURE, byEqIdFuture.results.first().timeframe)
+
+            // Filter by SKU & Past timeframe
+            val bySkuPast = searchDesktopRentalAgreements(
+                query = tent.sku,
+                timeframeFilter = DesktopRentalTimeframeFilter.PAST,
+                orders = snap.orders,
+                heldQuotes = snap.heldQuotes,
+                items = snap.items,
+                clients = snap.clients,
+                equipmentUnits = snap.equipmentUnits,
+                scanLogs = snap.scanLogs,
+                nowMs = fixedNow,
+            )
+            assertEquals(1, bySkuPast.results.size)
+            assertEquals(pastOrder.id, bySkuPast.results.first().id)
+            assertEquals(DesktopRentalAgreementTimeframe.PAST, bySkuPast.results.first().timeframe)
         } finally {
             dir.deleteRecursively()
         }

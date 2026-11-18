@@ -223,6 +223,12 @@ fun MainScreen(
                                 onNavigateToReceiptDetail = { receiptId ->
                                     navController.navigate(ReceiptDetailRoute(receiptId))
                                 },
+                                onOpenHeldQuote = { ticketId ->
+                                    data.tickets.firstOrNull { it.ticket.id == ticketId }?.let { ticket ->
+                                        transactionViewModel.loadTicket(ticket)
+                                        navigateToTopLevel(CheckoutRoute)
+                                    }
+                                },
                             )
                         }
 
