@@ -29,10 +29,15 @@ import com.loypos.app.data.local.CashMovementEntity
 import com.loypos.app.data.local.CategoryEntity
 import com.loypos.app.data.local.CustomerEntity
 import com.loypos.app.data.local.DailyRevenuePoint
+import com.loypos.app.core.ItemPhotos
+import com.loypos.app.data.local.DamageReportEntity
 import com.loypos.app.data.local.DbStats
 import com.loypos.app.data.local.EquipmentScanLogEntity
 import com.loypos.app.data.local.EquipmentUnitEntity
 import com.loypos.app.data.local.EquipmentUtilizationPoint
+import com.loypos.app.data.local.EventKitEntity
+import com.loypos.app.data.local.EventKitItemEntity
+import com.loypos.app.data.local.EventKitWithItems
 import com.loypos.app.data.local.ItemEntity
 import com.loypos.app.data.local.LoyPosDatabase
 import com.loypos.app.data.local.MonthlyIncomePoint
@@ -131,6 +136,8 @@ class LoyPosRepository(private val context: Context) {
     val equipmentUnitsFlow: Flow<List<EquipmentUnitEntity>> = dao.observeEquipmentUnits()
     val equipmentScanLogsFlow: Flow<List<EquipmentScanLogEntity>> = dao.observeEquipmentScanLogs()
     val agreementTemplatesFlow: Flow<List<AgreementTemplateEntity>> = dao.observeAgreementTemplates()
+    val eventKitsFlow: Flow<List<EventKitWithItems>> = dao.observeEventKitsWithItems()
+    val damageReportsFlow: Flow<List<DamageReportEntity>> = dao.observeDamageReports()
 
     val receiptsWithLinesFlow: Flow<List<ReceiptWithLines>> = saleDao.observeSalesWithItems()
 
@@ -1522,6 +1529,139 @@ class LoyPosRepository(private val context: Context) {
             if (remaining.isNotEmpty() && remaining.none { it.isDefault }) {
                 dao.setDefaultAgreementTemplate(remaining.first().id)
             }
+        }
+    }
+
+    // --- Event Kits / Bundles ---
+    suspend fun saveEventKit(
+        kitId: String?,
+        name: String,
+        description: String,
+        category: String,
+        discountPercent: Double,
+        lines: List<Triple<String, String, Double>>, // (itemId, itemName, qty)
+    ): EventKitWithItems {
+        val now = nowMs()
+        val id = kitId?.takeIf { it.isNotBlank() } ?: newId()
+        val existingCreatedAt = if (kitId != null) {
+            dao.getAllEventKitsWithItems().firstOrNull { it.kit.id == id }?.kit?.createdAt ?: now
+        } else {
+            now
+        }
+        val kit = EventKitEntity(
+            id = id,
+            name = name.trim().ifEmpty { "Event Kit" },
+            description = description.trim(),
+            category = category.trim().ifEmpty { "Event Package" },
+            discountPercent = discountPercent.coerceIn(0.0, 90.0),
+            createdAt = existingCreatedAt,
+            updatedAt = now,
+        )
+        val kitItems = lines
+            .filter { it.first.isNotBlank() && it.third > 0.0 }
+            .groupBy { it.first }
+            .values
+            .map { group ->
+                val first = group.first()
+                EventKitItemEntity(
+                    id = newId(),
+                    kitId = id,
+                    itemId = first.first,
+                    itemName = first.second,
+                    qty = group.sumOf { it.third },
+                )
+            }
+        db.withTransaction {
+            dao.upsertEventKit(kit)
+            dao.deleteEventKitItemsForKit(id)
+            if (kitItems.isNotEmpty()) {
+                dao.insertEventKitItems(kitItems)
+            }
+        }
+        return EventKitWithItems(kit, kitItems)
+    }
+
+    suspend fun deleteEventKit(kitId: String) {
+        db.withTransaction {
+            dao.deleteEventKitItemsForKit(kitId)
+            dao.deleteEventKitById(kitId)
+        }
+    }
+
+    // --- Equipment Damage Report Log ---
+    suspend fun saveDamageReport(
+        reportId: String?,
+        itemId: String,
+        itemSku: String,
+        itemName: String,
+        unitCode: String,
+        receiptId: String?,
+        receiptNumber: Int?,
+        customerName: String,
+        severity: String,
+        status: String,
+        repairCostCents: Long,
+        notes: String,
+        photoPaths: List<String>,
+        reportedBy: String,
+        markUnitMaintenance: Boolean,
+    ): DamageReportEntity {
+        val now = nowMs()
+        val id = reportId?.takeIf { it.isNotBlank() } ?: newId()
+        val cleanStatus = status.ifBlank { DamageReportEntity.STATUS_OPEN }
+        val resolvedAt = if (cleanStatus == DamageReportEntity.STATUS_RESOLVED) now else null
+        val report = DamageReportEntity(
+            id = id,
+            itemId = itemId.trim(),
+            itemSku = itemSku.trim(),
+            itemName = itemName.trim().ifEmpty { itemId.trim() },
+            unitCode = unitCode.trim(),
+            receiptId = receiptId?.takeIf { it.isNotBlank() },
+            receiptNumber = receiptNumber,
+            customerName = customerName.trim(),
+            severity = severity.ifBlank { DamageReportEntity.SEVERITY_MINOR },
+            status = cleanStatus,
+            repairCostCents = repairCostCents.coerceAtLeast(0L),
+            notes = notes.trim(),
+            photoPaths = DamageReportEntity.encodePhotoPaths(photoPaths),
+            reportedBy = reportedBy.trim(),
+            createdAt = if (reportId != null) {
+                dao.getAllDamageReports().firstOrNull { it.id == id }?.createdAt ?: now
+            } else {
+                now
+            },
+            resolvedAt = resolvedAt,
+        )
+        db.withTransaction {
+            dao.upsertDamageReport(report)
+            if (markUnitMaintenance && unitCode.isNotBlank()) {
+                val unit = dao.getEquipmentUnitByCode(unitCode.trim())
+                if (unit != null) {
+                    val noteSummary = notes.trim().take(120).ifEmpty { "Damage logged (${report.severity})" }
+                    dao.upsertEquipmentUnit(
+                        unit.copy(
+                            status = EquipmentUnitEntity.STATUS_MAINTENANCE,
+                            conditionNote = noteSummary,
+                            lastScanAt = now,
+                            updatedAt = now,
+                        )
+                    )
+                }
+            }
+        }
+        return report
+    }
+
+    suspend fun updateDamageReportStatus(id: String, status: String) {
+        val now = nowMs()
+        val resolvedAt = if (status == DamageReportEntity.STATUS_RESOLVED) now else null
+        dao.updateDamageReportStatus(id, status, resolvedAt)
+    }
+
+    suspend fun deleteDamageReport(id: String, photoPaths: List<String>) {
+        dao.deleteDamageReportById(id)
+        withContext(Dispatchers.IO) {
+            photoPaths.forEach { ItemPhotos.deleteFile(it) }
         }
     }
 

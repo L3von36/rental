@@ -76,3 +76,14 @@ data class QrTrackingRoute(val initialItemId: String? = null)
 
 @Serializable
 data object AgreementsRoute
+
+@Serializable
+data object EventKitsRoute
+
+@Serializable
+data class DamageReportsRoute(
+    val initialReceiptId: String? = null,
+    val initialItemId: String? = null,
+    val initialUnitCode: String? = null,
+)
+

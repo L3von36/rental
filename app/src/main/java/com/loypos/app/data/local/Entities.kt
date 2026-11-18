@@ -398,6 +398,103 @@ data class AgreementTemplateEntity(
     @ColumnInfo(name = "updated_at") val updatedAt: Long = 0L,
 )
 
+@Entity(tableName = "event_kits")
+data class EventKitEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val category: String = "Wedding",
+    val description: String = "",
+    @ColumnInfo(name = "discount_percent") val discountPercent: Double = 0.0,
+    @ColumnInfo(name = "created_at") val createdAt: Long = 0L,
+    @ColumnInfo(name = "updated_at") val updatedAt: Long = 0L,
+)
+
+@Entity(
+    tableName = "event_kit_items",
+    foreignKeys = [
+        ForeignKey(
+            entity = EventKitEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["kit_id"],
+            onDelete = ForeignKey.CASCADE,
+            onUpdate = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [
+        Index(value = ["kit_id"]),
+        Index(value = ["item_id"]),
+    ],
+)
+data class EventKitItemEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "kit_id") val kitId: String,
+    @ColumnInfo(name = "item_id") val itemId: String,
+    @ColumnInfo(name = "item_name") val itemName: String,
+    val qty: Double,
+)
+
+data class EventKitWithItems(
+    @Embedded val kit: EventKitEntity,
+    @Relation(
+        parentColumn = "id",
+        entityColumn = "kit_id",
+    )
+    val items: List<EventKitItemEntity>,
+)
+
+@Entity(
+    tableName = "damage_reports",
+    indices = [
+        Index(value = ["item_id"]),
+        Index(value = ["receipt_id"]),
+        Index(value = ["created_at"]),
+    ],
+)
+data class DamageReportEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "item_id") val itemId: String,
+    @ColumnInfo(name = "item_sku") val itemSku: String = "",
+    @ColumnInfo(name = "item_name") val itemName: String,
+    @ColumnInfo(name = "unit_code") val unitCode: String = "",
+    @ColumnInfo(name = "receipt_id") val receiptId: String? = null,
+    @ColumnInfo(name = "receipt_number") val receiptNumber: Int? = null,
+    @ColumnInfo(name = "customer_name") val customerName: String = "",
+    val severity: String = SEVERITY_MINOR, // "minor" | "moderate" | "severe"
+    val status: String = STATUS_OPEN, // "open" | "repairing" | "resolved"
+    @ColumnInfo(name = "repair_cost_cents") val repairCostCents: Long = 0L,
+    val notes: String = "",
+    @ColumnInfo(name = "photo_paths") val photoPaths: String = "", // JSON array of local paths
+    @ColumnInfo(name = "reported_by") val reportedBy: String = "",
+    @ColumnInfo(name = "created_at") val createdAt: Long,
+    @ColumnInfo(name = "resolved_at") val resolvedAt: Long? = null,
+) {
+    fun photoPathList(): List<String> {
+        if (photoPaths.isBlank()) return emptyList()
+        return try {
+            val arr = org.json.JSONArray(photoPaths)
+            (0 until arr.length()).mapNotNull { idx -> arr.optString(idx).takeIf { it.isNotBlank() } }
+        } catch (_: Exception) {
+            photoPaths.split("|").map { it.trim() }.filter { it.isNotEmpty() }
+        }
+    }
+
+    companion object {
+        const val SEVERITY_MINOR = "minor"
+        const val SEVERITY_MODERATE = "moderate"
+        const val SEVERITY_SEVERE = "severe"
+
+        const val STATUS_OPEN = "open"
+        const val STATUS_REPAIRING = "repairing"
+        const val STATUS_RESOLVED = "resolved"
+
+        fun encodePhotoPaths(paths: List<String>): String {
+            val arr = org.json.JSONArray()
+            paths.filter { it.isNotBlank() }.distinct().forEach { arr.put(it) }
+            return arr.toString()
+        }
+    }
+}
+
 data class CartLine(
     val itemId: String,
     val name: String,

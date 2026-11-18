@@ -15,6 +15,7 @@ import com.loypos.app.core.pointsForTotal
 import com.loypos.app.data.LoyPosRepository
 import com.loypos.app.data.local.CartLine
 import com.loypos.app.data.local.CustomerEntity
+import com.loypos.app.data.local.EventKitWithItems
 import com.loypos.app.data.local.LoyPosDatabase
 import com.loypos.app.data.local.ProductEntity
 import com.loypos.app.data.local.SaleEntity
@@ -123,6 +124,91 @@ class TransactionViewModel(application: Application) : AndroidViewModel(applicat
             }
             state.copy(items = updated)
         }
+    }
+
+    data class EventKitAddOutcome(
+        val addedLines: Int,
+        val cappedNames: List<String>,
+        val unavailableNames: List<String>,
+        val appliedDiscount: Boolean,
+    )
+
+    fun addEventKit(
+        kitWithItems: EventKitWithItems,
+        catalog: List<ProductEntity>,
+        applyBundleDiscount: Boolean = true,
+    ): EventKitAddOutcome {
+        val byId = catalog.filter { !it.archived }.associateBy { it.id }
+        var addedLines = 0
+        val cappedNames = mutableListOf<String>()
+        val unavailableNames = mutableListOf<String>()
+        var appliedDiscount = false
+
+        _cartSession.update { state ->
+            val days = state.rentalDays.coerceAtLeast(1)
+            val updated = state.items.toMutableList()
+            for (kitLine in kitWithItems.items) {
+                val product = byId[kitLine.itemId]
+                if (product == null) {
+                    unavailableNames += kitLine.itemName
+                    continue
+                }
+                val existingIdx = updated.indexOfFirst { it.itemId == product.id }
+                val currentInCart = if (existingIdx >= 0) updated[existingIdx].qty else 0.0
+                val desiredAdd = kitLine.qty.coerceAtLeast(1.0)
+                val allowedAdd = if (product.trackStock) {
+                    val remaining = (product.stock - currentInCart).coerceAtLeast(0.0)
+                    if (remaining <= 0.0) {
+                        unavailableNames += product.name
+                        continue
+                    }
+                    if (desiredAdd > remaining) {
+                        cappedNames += "${product.name} (${formatQty(remaining)}/${formatQty(desiredAdd)})"
+                        remaining
+                    } else {
+                        desiredAdd
+                    }
+                } else {
+                    desiredAdd
+                }
+                if (existingIdx >= 0) {
+                    val existing = updated[existingIdx]
+                    updated[existingIdx] = existing.copy(qty = existing.qty + allowedAdd, rentalDays = days)
+                } else {
+                    updated.add(CartLine(product.id, product.name, product.priceCents, allowedAdd, days))
+                }
+                addedLines++
+            }
+            val nextDiscount = if (
+                applyBundleDiscount &&
+                addedLines > 0 &&
+                kitWithItems.kit.discountPercent > 0.0 &&
+                state.discount == null
+            ) {
+                appliedDiscount = true
+                DiscountInput("percent", kitWithItems.kit.discountPercent)
+            } else {
+                state.discount
+            }
+            val nextNote = if (addedLines > 0 && state.note.isBlank()) {
+                "Kit: ${kitWithItems.kit.name}"
+            } else {
+                state.note
+            }
+            state.copy(items = updated, discount = nextDiscount, note = nextNote)
+        }
+
+        _message.value = when {
+            addedLines == 0 -> "No available stock to add ${kitWithItems.kit.name}"
+            cappedNames.isNotEmpty() || unavailableNames.isNotEmpty() ->
+                "Added ${kitWithItems.kit.name} ($addedLines items; stock limits on ${(cappedNames + unavailableNames).joinToString(", ")})"
+            appliedDiscount ->
+                "Added ${kitWithItems.kit.name} (${kitWithItems.items.size} items · ${kitWithItems.kit.discountPercent.toInt()}% off applied)"
+            else ->
+                "Added ${kitWithItems.kit.name} (${kitWithItems.items.size} items) to rental order"
+        }
+
+        return EventKitAddOutcome(addedLines, cappedNames, unavailableNames, appliedDiscount)
     }
 
     fun updateCartItemQty(productId: String, newQty: Double) {

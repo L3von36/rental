@@ -37,6 +37,7 @@ import androidx.compose.material.icons.outlined.DeleteSweep
 import androidx.compose.material.icons.outlined.Event
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.LocalOffer
 import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.ReceiptLong
@@ -128,6 +129,7 @@ fun SellScreen(
     onNavigateToCart: () -> Unit,
     onNavigateToPayment: () -> Unit,
     onNavigateToSchedule: () -> Unit = {},
+    onNavigateToEventKits: () -> Unit = {},
 ) {
     var searchOpen by remember { mutableStateOf(false) }
     var showBranchSheet by remember { mutableStateOf(false) }
@@ -212,6 +214,19 @@ fun SellScreen(
                 }
             },
             actions = {
+                IconButton(
+                    onClick = onNavigateToEventKits,
+                    modifier = Modifier
+                        .accessibleTouchTarget(metrics.minTouchTarget)
+                        .testTag("sell_event_kits_button"),
+                ) {
+                    Icon(
+                        Icons.Outlined.Layers,
+                        contentDescription = "Manage Event Kits & Bundles",
+                        tint = LoyGreen,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
                 IconButton(
                     onClick = onNavigateToSchedule,
                     modifier = Modifier
@@ -349,6 +364,58 @@ fun SellScreen(
                             ),
                             modifier = Modifier.height(metrics.chipHeight),
                         )
+                    }
+                }
+
+                // 1-Click Event Kits Quick Add Strip
+                if (data.eventKits.isNotEmpty()) {
+                    LazyRow(
+                        contentPadding = PaddingValues(start = metrics.screenPadding, end = metrics.screenPadding, bottom = 5.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        items(data.eventKits, key = { "quick_kit_${it.kit.id}" }) { kitWithItems ->
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = LoyGreenLight,
+                                border = BorderStroke(1.dp, LoyGreen.copy(alpha = 0.4f)),
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        transactionViewModel.addEventKit(kitWithItems, data.items)
+                                    }
+                                    .testTag("quick_add_kit_${kitWithItems.kit.id}"),
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                ) {
+                                    Icon(
+                                        Icons.Outlined.Layers,
+                                        contentDescription = null,
+                                        tint = LoyGreen,
+                                        modifier = Modifier.size(14.dp),
+                                    )
+                                    Text(
+                                        text = "+ ${kitWithItems.kit.name} (${kitWithItems.items.size})",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = LoyTextPrimary,
+                                        maxLines = 1,
+                                    )
+                                }
+                            }
+                        }
+                        item {
+                            OutlinedButton(
+                                onClick = onNavigateToEventKits,
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                modifier = Modifier.height(28.dp).testTag("sell_manage_kits_chip"),
+                            ) {
+                                Text("Manage Kits", style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
                     }
                 }
 

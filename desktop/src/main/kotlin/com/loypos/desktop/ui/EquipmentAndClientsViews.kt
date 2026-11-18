@@ -103,6 +103,8 @@ fun DesktopDashboardView(
     onOpenSchedule: () -> Unit = {},
     onOpenQrTracking: () -> Unit = {},
     onOpenAgreements: () -> Unit = {},
+    onOpenEventKits: () -> Unit = {},
+    onOpenDamageLog: () -> Unit = {},
 ) {
     val sym = snapshot.settings.currencySymbol
     var agreementSearchQuery by remember { mutableStateOf("") }
@@ -181,6 +183,12 @@ fun DesktopDashboardView(
                 Text("Multi-day event equipment rental management for Desktop & Mobile", style = MaterialTheme.typography.bodySmall, color = LoyTextSecondary)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onOpenEventKits) {
+                    Text("Event Kits")
+                }
+                OutlinedButton(onClick = onOpenDamageLog) {
+                    Text("Damage Log")
+                }
                 OutlinedButton(onClick = onOpenQrTracking) {
                     Text("QR Track")
                 }
@@ -188,7 +196,7 @@ fun DesktopDashboardView(
                     Text("Contracts")
                 }
                 OutlinedButton(onClick = onOpenSchedule) {
-                    Text("Schedule Calendar")
+                    Text("Schedule")
                 }
                 Button(onClick = onOpenRentDesk) {
                     Text("Open Rent Desk")

@@ -40,11 +40,13 @@ import com.loypos.app.data.local.CashMovementEntity
 import com.loypos.app.data.local.CategoryEntity
 import com.loypos.app.data.local.CustomerEntity
 import com.loypos.app.data.local.DailyRevenuePoint
+import com.loypos.app.data.local.DamageReportEntity
 import com.loypos.app.data.local.DaySalesSummary
 import com.loypos.app.data.local.DbStats
 import com.loypos.app.data.local.EquipmentScanLogEntity
 import com.loypos.app.data.local.EquipmentUnitEntity
 import com.loypos.app.data.local.EquipmentUtilizationPoint
+import com.loypos.app.data.local.EventKitWithItems
 import com.loypos.app.data.local.ItemEntity
 import com.loypos.app.data.local.MonthlyIncomePoint
 import com.loypos.app.data.local.ReceiptEntity
@@ -91,6 +93,8 @@ data class LoyPosDataState(
     val equipmentUnits: List<EquipmentUnitEntity> = emptyList(),
     val equipmentScanLogs: List<EquipmentScanLogEntity> = emptyList(),
     val agreementTemplates: List<AgreementTemplateEntity> = emptyList(),
+    val eventKits: List<EventKitWithItems> = emptyList(),
+    val damageReports: List<DamageReportEntity> = emptyList(),
 )
 
 data class UiSessionState(
@@ -257,14 +261,18 @@ class LoyPosViewModel(application: Application) : AndroidViewModel(application) 
         repo.equipmentUnitsFlow,
         repo.equipmentScanLogsFlow,
         repo.agreementTemplatesFlow,
-    ) { units, scanLogs, templates -> Triple(units, scanLogs, templates) }
+        repo.eventKitsFlow,
+        repo.damageReportsFlow,
+    ) { units, scanLogs, templates, kits, damages ->
+        TrackingBundle(units, scanLogs, templates, kits, damages)
+    }
 
     val dataState: StateFlow<LoyPosDataState> = combine(
         coreDataFlow,
         salesDataFlow,
         shiftDataFlow,
         trackingDataFlow,
-    ) { core, sales, shiftTriple, trackingTriple ->
+    ) { core, sales, shiftTriple, tracking ->
         core.copy(
             customers = sales.first,
             receipts = sales.second,
@@ -274,14 +282,24 @@ class LoyPosViewModel(application: Application) : AndroidViewModel(application) 
             shifts = shiftTriple.first,
             cashMovements = shiftTriple.second,
             backOfficeAdmins = shiftTriple.third,
-            equipmentUnits = trackingTriple.first,
-            equipmentScanLogs = trackingTriple.second,
-            agreementTemplates = trackingTriple.third,
+            equipmentUnits = tracking.units,
+            equipmentScanLogs = tracking.scanLogs,
+            agreementTemplates = tracking.templates,
+            eventKits = tracking.kits,
+            damageReports = tracking.damages,
         )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = LoyPosDataState(),
+    )
+
+    private data class TrackingBundle(
+        val units: List<EquipmentUnitEntity>,
+        val scanLogs: List<EquipmentScanLogEntity>,
+        val templates: List<AgreementTemplateEntity>,
+        val kits: List<EventKitWithItems>,
+        val damages: List<DamageReportEntity>,
     )
 
     init {
@@ -1597,6 +1615,99 @@ class LoyPosViewModel(application: Application) : AndroidViewModel(application) 
             }.onFailure {
                 showMessage("Could not export agreement PDF: ${it.message}")
             }
+        }
+    }
+
+    // --- Event Kits / Bundles ---
+    fun saveEventKit(
+        kitId: String?,
+        name: String,
+        description: String,
+        category: String,
+        discountPercent: Double,
+        lines: List<Triple<String, String, Double>>,
+        onSaved: () -> Unit = {},
+    ) {
+        viewModelScope.launch {
+            repo.saveEventKit(kitId, name, description, category, discountPercent, lines)
+            showMessage("Saved event kit: ${name.trim().ifEmpty { "Event Kit" }}")
+            onSaved()
+        }
+    }
+
+    fun deleteEventKit(kitId: String) {
+        viewModelScope.launch {
+            repo.deleteEventKit(kitId)
+            showMessage("Event kit deleted")
+        }
+    }
+
+    // --- Equipment Damage Report Log ---
+    suspend fun saveDamagePhotoFromUri(uri: Uri): Result<String> = runCatching {
+        ItemPhotos.saveFromUri(appContext, uri)
+    }
+
+    fun deleteLocalPhotoQuietly(path: String) {
+        ItemPhotos.deleteFile(path)
+    }
+
+    fun saveDamageReport(
+        reportId: String?,
+        itemId: String,
+        itemSku: String,
+        itemName: String,
+        unitCode: String,
+        receiptId: String?,
+        receiptNumber: Int?,
+        customerName: String,
+        severity: String,
+        status: String,
+        repairCostCents: Long,
+        notes: String,
+        photoPaths: List<String>,
+        markUnitMaintenance: Boolean,
+        onSaved: (DamageReportEntity) -> Unit = {},
+    ) {
+        val operator = _session.value.currentUser?.let { it.ownerName.ifEmpty { it.email } } ?: "Inspector"
+        viewModelScope.launch {
+            val saved = repo.saveDamageReport(
+                reportId = reportId,
+                itemId = itemId,
+                itemSku = itemSku,
+                itemName = itemName,
+                unitCode = unitCode,
+                receiptId = receiptId,
+                receiptNumber = receiptNumber,
+                customerName = customerName,
+                severity = severity,
+                status = status,
+                repairCostCents = repairCostCents,
+                notes = notes,
+                photoPaths = photoPaths,
+                reportedBy = operator,
+                markUnitMaintenance = markUnitMaintenance,
+            )
+            showMessage("Damage report logged for ${saved.itemName}")
+            onSaved(saved)
+        }
+    }
+
+    fun updateDamageReportStatus(id: String, status: String) {
+        viewModelScope.launch {
+            repo.updateDamageReportStatus(id, status)
+            val label = when (status) {
+                DamageReportEntity.STATUS_REPAIRING -> "Under Repair"
+                DamageReportEntity.STATUS_RESOLVED -> "Resolved"
+                else -> "Open"
+            }
+            showMessage("Damage report marked $label")
+        }
+    }
+
+    fun deleteDamageReport(report: DamageReportEntity) {
+        viewModelScope.launch {
+            repo.deleteDamageReport(report.id, report.photoPathList())
+            showMessage("Damage report deleted")
         }
     }
 }

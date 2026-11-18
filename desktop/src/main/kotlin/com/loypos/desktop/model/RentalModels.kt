@@ -174,6 +174,45 @@ data class DesktopAgreementTemplate(
 )
 
 @Serializable
+data class DesktopEventKitItem(
+    val itemId: String,
+    val itemName: String,
+    val qty: Double,
+)
+
+@Serializable
+data class DesktopEventKit(
+    val id: String,
+    val name: String,
+    val description: String = "",
+    val category: String = "Event Package",
+    val discountPercent: Double = 0.0,
+    val createdAt: Long = 0L,
+    val updatedAt: Long = 0L,
+    val items: List<DesktopEventKitItem> = emptyList(),
+)
+
+@Serializable
+data class DesktopDamageReport(
+    val id: String,
+    val itemId: String,
+    val itemSku: String = "",
+    val itemName: String,
+    val unitCode: String = "",
+    val orderId: String? = null,
+    val orderNumber: Int? = null,
+    val customerName: String = "",
+    val severity: String = "minor", // "minor" | "moderate" | "severe"
+    val status: String = "open", // "open" | "repairing" | "resolved"
+    val repairCostCents: Long = 0L,
+    val notes: String = "",
+    val photoPaths: List<String> = emptyList(),
+    val reportedBy: String = "Desktop Operator",
+    val createdAt: Long = 0L,
+    val resolvedAt: Long? = null,
+)
+
+@Serializable
 data class DesktopStoreSnapshot(
     val categories: List<DesktopCategory> = emptyList(),
     val items: List<DesktopEquipment> = emptyList(),
@@ -184,6 +223,8 @@ data class DesktopStoreSnapshot(
     val equipmentUnits: List<DesktopEquipmentUnit> = emptyList(),
     val scanLogs: List<DesktopEquipmentScanLog> = emptyList(),
     val agreementTemplates: List<DesktopAgreementTemplate> = emptyList(),
+    val eventKits: List<DesktopEventKit> = emptyList(),
+    val damageReports: List<DesktopDamageReport> = emptyList(),
 )
 
 // Android-compatible export envelope (loypos-export v1) for seamless Android <-> Desktop transfer

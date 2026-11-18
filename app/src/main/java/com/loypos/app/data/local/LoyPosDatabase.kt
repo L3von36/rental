@@ -33,8 +33,11 @@ import kotlinx.coroutines.launch
         EquipmentUnitEntity::class,
         EquipmentScanLogEntity::class,
         AgreementTemplateEntity::class,
+        EventKitEntity::class,
+        EventKitItemEntity::class,
+        DamageReportEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = false,
 )
 abstract class LoyPosDatabase : RoomDatabase() {
@@ -165,6 +168,64 @@ abstract class LoyPosDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS event_kits (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        category TEXT NOT NULL,
+                        description TEXT NOT NULL,
+                        discount_percent REAL NOT NULL,
+                        created_at INTEGER NOT NULL,
+                        updated_at INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS event_kit_items (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        kit_id TEXT NOT NULL,
+                        item_id TEXT NOT NULL,
+                        item_name TEXT NOT NULL,
+                        qty REAL NOT NULL,
+                        FOREIGN KEY(kit_id) REFERENCES event_kits(id) ON DELETE CASCADE ON UPDATE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_event_kit_items_kit_id ON event_kit_items(kit_id)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_event_kit_items_item_id ON event_kit_items(item_id)")
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS damage_reports (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        item_id TEXT NOT NULL,
+                        item_sku TEXT NOT NULL,
+                        item_name TEXT NOT NULL,
+                        unit_code TEXT NOT NULL,
+                        receipt_id TEXT,
+                        receipt_number INTEGER,
+                        customer_name TEXT NOT NULL,
+                        severity TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        repair_cost_cents INTEGER NOT NULL,
+                        notes TEXT NOT NULL,
+                        photo_paths TEXT NOT NULL,
+                        reported_by TEXT NOT NULL,
+                        created_at INTEGER NOT NULL,
+                        resolved_at INTEGER
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_damage_reports_item_id ON damage_reports(item_id)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_damage_reports_receipt_id ON damage_reports(receipt_id)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_damage_reports_created_at ON damage_reports(created_at)")
+            }
+        }
+
         fun getInstance(context: Context): LoyPosDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -172,7 +233,7 @@ abstract class LoyPosDatabase : RoomDatabase() {
                     LoyPosDatabase::class.java,
                     DB_NAME,
                 )
-                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
@@ -223,6 +284,12 @@ abstract class LoyPosDatabase : RoomDatabase() {
             val dao = db.dao()
             if (dao.countAgreementTemplates() == 0) {
                 dao.upsertAgreementTemplates(RentalAgreementEngine.defaultTemplates(now))
+            }
+            if (dao.countEventKits() == 0) {
+                DemoCatalog.defaultEventKits(now).forEach { entry ->
+                    dao.upsertEventKit(entry.kit)
+                    dao.insertEventKitItems(entry.items)
+                }
             }
             if (dao.getAllEquipmentUnits().isEmpty()) {
                 val items = db.productDao().getAllProducts().filter { !it.archived }

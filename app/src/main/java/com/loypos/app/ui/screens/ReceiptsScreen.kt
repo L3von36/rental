@@ -34,6 +34,7 @@ import androidx.compose.material.icons.outlined.Payments
 import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material.icons.outlined.ReceiptLong
+import androidx.compose.material.icons.outlined.ReportProblem
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -106,6 +107,7 @@ fun ReceiptsScreen(
     onOpenReceipt: (String) -> Unit,
     onNavigateToSchedule: () -> Unit = {},
     onNavigateToQrTracking: () -> Unit = {},
+    onReportDamage: (String, String?) -> Unit = { _, _ -> },
 ) {
     var search by remember { mutableStateOf("") }
     var statusFilterIdx by remember { mutableIntStateOf(0) } // 0=All, 1=Out, 2=Overdue, 3=Returned, 4=Refunded
@@ -364,6 +366,9 @@ fun ReceiptsScreen(
                                 onShareText = { viewModel.shareReceiptText(activeDetail) },
                                 onPreviewPdf = { showPdfPreview = true },
                                 onOpenAgreement = { showAgreementDialog = true },
+                                onReportDamage = {
+                                    onReportDamage(activeDetail.receipt.id, activeDetail.lines.firstOrNull()?.itemId)
+                                },
                                 onMarkReturned = { showReturnDialog = true },
                                 onRequestRefund = { showRefundDialog = true },
                                 modifier = Modifier
@@ -435,6 +440,7 @@ fun ReceiptDetailScreen(
     viewModel: LoyPosViewModel,
     receiptId: String,
     data: LoyPosDataState,
+    onReportDamage: (String, String?) -> Unit = { _, _ -> },
     onBack: () -> Unit,
 ) {
     val receiptWithLines = remember(data.receipts, receiptId) {
@@ -490,6 +496,9 @@ fun ReceiptDetailScreen(
             onShareText = { viewModel.shareReceiptText(receiptWithLines) },
             onPreviewPdf = { showPdfPreview = true },
             onOpenAgreement = { showAgreementDialog = true },
+            onReportDamage = {
+                onReportDamage(receiptWithLines.receipt.id, receiptWithLines.lines.firstOrNull()?.itemId)
+            },
             onMarkReturned = { showReturnDialog = true },
             onRequestRefund = { showRefundDialog = true },
             modifier = Modifier
@@ -554,6 +563,7 @@ private fun ReceiptDetailContent(
     onShareText: () -> Unit,
     onPreviewPdf: () -> Unit,
     onOpenAgreement: () -> Unit,
+    onReportDamage: () -> Unit,
     onMarkReturned: () -> Unit,
     onRequestRefund: () -> Unit,
     modifier: Modifier = Modifier,
@@ -721,6 +731,18 @@ private fun ReceiptDetailContent(
             Icon(Icons.Outlined.Description, contentDescription = null, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(6.dp))
             Text("Generate Populated Rental Agreement")
+        }
+
+        OutlinedButton(
+            onClick = onReportDamage,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = metrics.minTouchTarget)
+                .testTag("receipt_detail_damage_button"),
+        ) {
+            Icon(Icons.Outlined.ReportProblem, contentDescription = null, tint = LoyError, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("Document Equipment Damage", color = LoyError)
         }
 
         if (r.isRentalOut) {

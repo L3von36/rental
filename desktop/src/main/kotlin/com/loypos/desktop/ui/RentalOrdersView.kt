@@ -27,6 +27,7 @@ import androidx.compose.material.icons.automirrored.outlined.ReceiptLong
 import androidx.compose.material.icons.automirrored.outlined.Undo
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Print
+import androidx.compose.material.icons.outlined.ReportProblem
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -67,6 +68,7 @@ import com.loypos.desktop.model.DesktopStoreSnapshot
 fun RentalOrdersView(
     repository: DesktopRepository,
     snapshot: DesktopStoreSnapshot,
+    onReportDamage: (DesktopRentalOrder) -> Unit = {},
     onToast: (String) -> Unit,
 ) {
     val sym = snapshot.settings.currencySymbol
@@ -311,6 +313,15 @@ fun RentalOrdersView(
                                 Text("Refund", color = LoyError)
                             }
                         }
+                    }
+
+                    OutlinedButton(
+                        onClick = { onReportDamage(order) },
+                        modifier = Modifier.fillMaxWidth().height(42.dp),
+                    ) {
+                        Icon(Icons.Outlined.ReportProblem, contentDescription = null, modifier = Modifier.size(16.dp), tint = LoyWarning)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Document Equipment Damage", color = LoyWarning, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }

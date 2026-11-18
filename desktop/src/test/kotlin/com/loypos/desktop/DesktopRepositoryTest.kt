@@ -20,6 +20,9 @@ import com.loypos.desktop.data.DesktopRepository
 import com.loypos.desktop.model.DesktopAgreementTemplate
 import com.loypos.desktop.model.DesktopCartLine
 import com.loypos.desktop.model.DesktopClient
+import com.loypos.desktop.model.DesktopDamageReport
+import com.loypos.desktop.model.DesktopEventKit
+import com.loypos.desktop.model.DesktopEventKitItem
 import java.io.File
 import java.nio.file.Files
 import java.time.LocalDate
@@ -553,6 +556,103 @@ class DesktopRepositoryTest {
             assertEquals(1, bySkuPast.results.size)
             assertEquals(pastOrder.id, bySkuPast.results.first().id)
             assertEquals(DesktopRentalAgreementTimeframe.PAST, bySkuPast.results.first().timeframe)
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun defaultEventKitsSeededAndCustomBundleCrudPersisted() {
+        val (repo, dir) = tempRepo()
+        try {
+            val snap = repo.state.value
+            val wedding = snap.eventKits.firstOrNull { it.name == "Wedding Package" }
+            assertNotNull(wedding)
+            assertEquals(10.0, wedding.discountPercent, 0.001)
+            val chairLine = wedding.items.firstOrNull { it.itemId == "eq-009" }
+            assertNotNull(chairLine)
+            assertEquals(50.0, chairLine.qty, 0.001)
+
+            // Create custom bundle
+            val saved = repo.saveEventKit(
+                DesktopEventKit(
+                    id = "kit-custom-stage",
+                    name = "Festival Stage Starter",
+                    description = "Stage deck + wireless mic + LED lights",
+                    category = "Concerts",
+                    discountPercent = 12.5,
+                    items = listOf(
+                        DesktopEventKitItem("eq-035", "4x8 Heavy-Duty Stage Deck", 4.0),
+                        DesktopEventKitItem("eq-031", "Dual UHF Wireless Mic Kit", 2.0),
+                    ),
+                )
+            )
+            assertEquals("Festival Stage Starter", saved.name)
+            assertTrue(repo.state.value.eventKits.any { it.id == "kit-custom-stage" && it.items.size == 2 })
+
+            // Reload from disk verifies JSON persistence
+            val reloaded = DesktopRepository(dir)
+            val reloadedKit = reloaded.state.value.eventKits.firstOrNull { it.id == "kit-custom-stage" }
+            assertNotNull(reloadedKit)
+            assertEquals(12.5, reloadedKit.discountPercent, 0.001)
+
+            // Delete custom kit
+            reloaded.deleteEventKit("kit-custom-stage")
+            assertFalse(reloaded.state.value.eventKits.any { it.id == "kit-custom-stage" })
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun damageReportWithPhotosItemIdAndMaintenanceUnitFlow() {
+        val (repo, dir) = tempRepo()
+        try {
+            val tent = repo.state.value.items.first { it.id == "eq-001" }
+            val unit = repo.addEquipmentUnit(tent.id, "TENT-DMG-01").getOrThrow()
+
+            // Simulate attaching a damage photo file
+            val sourceImg = File(dir, "torn-canopy.jpg").apply { writeBytes(byteArrayOf(1, 2, 3, 4)) }
+            val storedPhotoPath = repo.saveDamagePhoto(sourceImg)
+            assertTrue(File(storedPhotoPath).exists())
+
+            val savedReport = repo.saveDamageReport(
+                DesktopDamageReport(
+                    id = "dmg-1",
+                    itemId = tent.id,
+                    itemSku = tent.sku,
+                    itemName = tent.name,
+                    unitCode = unit.unitCode,
+                    customerName = "Grand Horizon Events",
+                    severity = "moderate",
+                    status = "open",
+                    repairCostCents = 4_500L,
+                    notes = "3-inch tear along canopy corner seam and bent leg pin.",
+                    photoPaths = listOf(storedPhotoPath),
+                ),
+                markUnitMaintenance = true,
+            )
+            assertEquals("open", savedReport.status)
+            assertEquals(tent.id, savedReport.itemId)
+            assertEquals(1, savedReport.photoPaths.size)
+
+            // Unit was automatically placed in maintenance
+            val updatedUnit = repo.state.value.equipmentUnits.first { it.id == unit.id }
+            assertEquals("maintenance", updatedUnit.status)
+
+            // Lifecycle: open -> repairing -> resolved
+            repo.updateDamageReportStatus("dmg-1", "repairing")
+            assertEquals("repairing", repo.state.value.damageReports.first { it.id == "dmg-1" }.status)
+
+            repo.updateDamageReportStatus("dmg-1", "resolved")
+            val resolvedReport = repo.state.value.damageReports.first { it.id == "dmg-1" }
+            assertEquals("resolved", resolvedReport.status)
+            assertNotNull(resolvedReport.resolvedAt)
+
+            // Delete removes report and cleans up copied photo file
+            repo.deleteDamageReport("dmg-1")
+            assertTrue(repo.state.value.damageReports.none { it.id == "dmg-1" })
+            assertFalse(File(storedPhotoPath).exists())
         } finally {
             dir.deleteRecursively()
         }

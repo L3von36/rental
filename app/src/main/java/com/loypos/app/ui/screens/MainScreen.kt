@@ -53,7 +53,9 @@ import com.loypos.app.ui.navigation.CalendarRoute
 import com.loypos.app.ui.navigation.CartRoute
 import com.loypos.app.ui.navigation.CheckoutRoute
 import com.loypos.app.ui.navigation.CustomersRoute
+import com.loypos.app.ui.navigation.DamageReportsRoute
 import com.loypos.app.ui.navigation.DashboardRoute
+import com.loypos.app.ui.navigation.EventKitsRoute
 import com.loypos.app.ui.navigation.InventoryRoute
 import com.loypos.app.ui.navigation.PaymentRoute
 import com.loypos.app.ui.navigation.QrTrackingRoute
@@ -219,6 +221,8 @@ fun MainScreen(
                                 onNavigateToSchedule = { navController.navigate(CalendarRoute) },
                                 onNavigateToQrTracking = { navController.navigate(QrTrackingRoute()) },
                                 onNavigateToAgreements = { navController.navigate(AgreementsRoute) },
+                                onNavigateToEventKits = { navController.navigate(EventKitsRoute) },
+                                onNavigateToDamageReports = { navController.navigate(DamageReportsRoute()) },
                                 onNavigateToReceipts = { navigateToTopLevel(ReceiptsRoute) },
                                 onNavigateToReceiptDetail = { receiptId ->
                                     navController.navigate(ReceiptDetailRoute(receiptId))
@@ -241,6 +245,7 @@ fun MainScreen(
                                 onNavigateToCart = { navController.navigate(CartRoute) },
                                 onNavigateToPayment = { navController.navigate(PaymentRoute) },
                                 onNavigateToSchedule = { navController.navigate(CalendarRoute) },
+                                onNavigateToEventKits = { navController.navigate(EventKitsRoute) },
                             )
                         }
 
@@ -266,6 +271,14 @@ fun MainScreen(
                                 },
                                 onNavigateToSchedule = { navController.navigate(CalendarRoute) },
                                 onNavigateToQrTracking = { navController.navigate(QrTrackingRoute()) },
+                                onReportDamage = { receiptId, itemId ->
+                                    navController.navigate(
+                                        DamageReportsRoute(
+                                            initialReceiptId = receiptId,
+                                            initialItemId = itemId,
+                                        )
+                                    )
+                                },
                             )
                         }
 
@@ -351,6 +364,14 @@ fun MainScreen(
                                 viewModel = viewModel,
                                 receiptId = args.receiptId,
                                 data = data,
+                                onReportDamage = { receiptId, itemId ->
+                                    navController.navigate(
+                                        DamageReportsRoute(
+                                            initialReceiptId = receiptId,
+                                            initialItemId = itemId,
+                                        )
+                                    )
+                                },
                                 onBack = { navController.popBackStack() },
                             )
                         }
@@ -409,6 +430,28 @@ fun MainScreen(
                             AgreementTemplatesScreen(
                                 viewModel = viewModel,
                                 data = data,
+                                onBack = { navController.popBackStack() },
+                            )
+                        }
+
+                        composable<EventKitsRoute> {
+                            EventKitsScreen(
+                                viewModel = viewModel,
+                                transactionViewModel = transactionViewModel,
+                                data = data,
+                                onAddedToOrder = { navigateToTopLevel(CheckoutRoute) },
+                                onBack = { navController.popBackStack() },
+                            )
+                        }
+
+                        composable<DamageReportsRoute> { entry ->
+                            val args = entry.toRoute<DamageReportsRoute>()
+                            DamageReportsScreen(
+                                viewModel = viewModel,
+                                data = data,
+                                initialReceiptId = args.initialReceiptId,
+                                initialItemId = args.initialItemId,
+                                initialUnitCode = args.initialUnitCode,
                                 onBack = { navController.popBackStack() },
                             )
                         }

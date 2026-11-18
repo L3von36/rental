@@ -487,6 +487,46 @@ interface LoyPosDao {
     @Query("DELETE FROM agreement_templates WHERE id = :id")
     suspend fun deleteAgreementTemplateById(id: String)
 
+    // Event Kits / Bundles
+    @Transaction
+    @Query("SELECT * FROM event_kits ORDER BY updated_at DESC, name ASC")
+    fun observeEventKitsWithItems(): Flow<List<EventKitWithItems>>
+
+    @Transaction
+    @Query("SELECT * FROM event_kits ORDER BY updated_at DESC, name ASC")
+    suspend fun getAllEventKitsWithItems(): List<EventKitWithItems>
+
+    @Query("SELECT COUNT(*) FROM event_kits")
+    suspend fun countEventKits(): Int
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertEventKit(kit: EventKitEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertEventKitItems(items: List<EventKitItemEntity>)
+
+    @Query("DELETE FROM event_kit_items WHERE kit_id = :kitId")
+    suspend fun deleteEventKitItemsForKit(kitId: String)
+
+    @Query("DELETE FROM event_kits WHERE id = :kitId")
+    suspend fun deleteEventKitById(kitId: String)
+
+    // Equipment Damage Reports
+    @Query("SELECT * FROM damage_reports ORDER BY created_at DESC")
+    fun observeDamageReports(): Flow<List<DamageReportEntity>>
+
+    @Query("SELECT * FROM damage_reports ORDER BY created_at DESC")
+    suspend fun getAllDamageReports(): List<DamageReportEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertDamageReport(report: DamageReportEntity)
+
+    @Query("UPDATE damage_reports SET status = :status, resolved_at = :resolvedAt WHERE id = :id")
+    suspend fun updateDamageReportStatus(id: String, status: String, resolvedAt: Long?)
+
+    @Query("DELETE FROM damage_reports WHERE id = :id")
+    suspend fun deleteDamageReportById(id: String)
+
     // Counts for DB Health
     @Query("SELECT COUNT(*) FROM branches WHERE archived = 0") suspend fun countBranches(): Int
     @Query("SELECT COUNT(*) FROM categories") suspend fun countCategories(): Int

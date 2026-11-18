@@ -2,6 +2,9 @@ package com.loypos.app.core
 
 import com.loypos.app.data.local.CategoryEntity
 import com.loypos.app.data.local.CustomerEntity
+import com.loypos.app.data.local.EventKitEntity
+import com.loypos.app.data.local.EventKitItemEntity
+import com.loypos.app.data.local.EventKitWithItems
 import com.loypos.app.data.local.ItemEntity
 
 object DemoCatalog {
@@ -122,4 +125,72 @@ object DemoCatalog {
         createdAt = now,
         updatedAt = 0L,
     )
+
+    fun defaultEventKits(now: Long = nowMs()): List<EventKitWithItems> {
+        val byId = items.associateBy { it.id }
+        fun kitLine(kitId: String, suffix: String, itemId: String, qty: Double): EventKitItemEntity {
+            val product = byId[itemId]
+            return EventKitItemEntity(
+                id = "$kitId-$suffix",
+                kitId = kitId,
+                itemId = itemId,
+                itemName = product?.name ?: itemId,
+                qty = qty,
+            )
+        }
+        return listOf(
+            EventKitWithItems(
+                kit = EventKitEntity(
+                    id = "kit-wedding",
+                    name = "Wedding Package",
+                    category = "Wedding",
+                    description = "50 Chiavari chairs, 5 round banquet tables, 5 satin tablecloths & 1 PA sound system",
+                    discountPercent = 10.0,
+                    createdAt = now,
+                    updatedAt = now,
+                ),
+                items = listOf(
+                    kitLine("kit-wedding", "1", "eq-008", 50.0),
+                    kitLine("kit-wedding", "2", "eq-015", 5.0),
+                    kitLine("kit-wedding", "3", "eq-018", 5.0),
+                    kitLine("kit-wedding", "4", "eq-029", 1.0),
+                ),
+            ),
+            EventKitWithItems(
+                kit = EventKitEntity(
+                    id = "kit-corporate",
+                    name = "Corporate Conference Kit",
+                    category = "Corporate",
+                    description = "40 banquet chairs, 4 trestle tables, 4K projector, projection screen & wireless mic kit",
+                    discountPercent = 5.0,
+                    createdAt = now,
+                    updatedAt = now,
+                ),
+                items = listOf(
+                    kitLine("kit-corporate", "1", "eq-011", 40.0),
+                    kitLine("kit-corporate", "2", "eq-016", 4.0),
+                    kitLine("kit-corporate", "3", "eq-033", 1.0),
+                    kitLine("kit-corporate", "4", "eq-034", 1.0),
+                    kitLine("kit-corporate", "5", "eq-031", 1.0),
+                ),
+            ),
+            EventKitWithItems(
+                kit = EventKitEntity(
+                    id = "kit-party",
+                    name = "Outdoor Night Party Kit",
+                    category = "Party",
+                    description = "6x6m pyramid tent, 6 RGBW LED par lights, 2 festoon string strands & 1 PA speaker",
+                    discountPercent = 8.0,
+                    createdAt = now,
+                    updatedAt = now,
+                ),
+                items = listOf(
+                    kitLine("kit-party", "1", "eq-002", 1.0),
+                    kitLine("kit-party", "2", "eq-021", 6.0),
+                    kitLine("kit-party", "3", "eq-023", 2.0),
+                    kitLine("kit-party", "4", "eq-029", 1.0),
+                ),
+            ),
+        )
+    }
 }

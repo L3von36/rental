@@ -3,6 +3,8 @@ package com.loypos.desktop.core
 import com.loypos.desktop.model.DesktopCategory
 import com.loypos.desktop.model.DesktopClient
 import com.loypos.desktop.model.DesktopEquipment
+import com.loypos.desktop.model.DesktopEventKit
+import com.loypos.desktop.model.DesktopEventKitItem
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -195,6 +197,54 @@ object DemoRentalCatalog {
             points = 120L,
             ordersCount = 2,
             createdAt = createdAt,
+        ),
+    )
+
+    fun buildDefaultEventKits(now: Long = nowMs()): List<DesktopEventKit> = listOf(
+        DesktopEventKit(
+            id = "kit-wedding-50",
+            name = "Wedding Package",
+            description = "Complete reception setup for ~50 guests: chairs, round tables, satin linens, and PA sound.",
+            category = "Wedding",
+            discountPercent = 10.0,
+            createdAt = now,
+            updatedAt = now,
+            items = listOf(
+                DesktopEventKitItem("eq-009", "Gold Chiavari Ballroom Chair", 50.0),
+                DesktopEventKitItem("eq-017", "60\" Round Reception Table", 5.0),
+                DesktopEventKitItem("eq-020", "Ivory Satin Tablecloth (120\" Rnd)", 5.0),
+                DesktopEventKitItem("eq-029", "1000W Powered PA Speaker + Stand", 1.0),
+            ),
+        ),
+        DesktopEventKit(
+            id = "kit-corporate-av",
+            name = "Corporate Conference Kit",
+            description = "Turnkey AV & seating bundle for town halls, keynotes, and board workshops.",
+            category = "Corporate",
+            discountPercent = 5.0,
+            createdAt = now,
+            updatedAt = now,
+            items = listOf(
+                DesktopEventKitItem("eq-011", "Padded Black Banquet Chair", 40.0),
+                DesktopEventKitItem("eq-015", "6ft Rectangular Banquet Table", 4.0),
+                DesktopEventKitItem("eq-034", "5500-Lumen Laser Projector + Screen", 1.0),
+                DesktopEventKitItem("eq-031", "Dual UHF Wireless Mic Kit", 1.0),
+            ),
+        ),
+        DesktopEventKit(
+            id = "kit-outdoor-party",
+            name = "Outdoor Night Party Kit",
+            description = "All-weather marquee tent with ambient lighting and sound system.",
+            category = "Outdoor",
+            discountPercent = 8.0,
+            createdAt = now,
+            updatedAt = now,
+            items = listOf(
+                DesktopEventKitItem("eq-002", "20x20 High-Peak Frame Tent", 1.0),
+                DesktopEventKitItem("eq-023", "Wireless RGBW LED Uplight", 8.0),
+                DesktopEventKitItem("eq-022", "Warm Bistro String Lights (50ft)", 2.0),
+                DesktopEventKitItem("eq-029", "1000W Powered PA Speaker + Stand", 1.0),
+            ),
         ),
     )
 }

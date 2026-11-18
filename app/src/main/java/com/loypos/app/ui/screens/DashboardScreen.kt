@@ -30,10 +30,12 @@ import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.Inventory2
+import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.PeopleOutline
 import androidx.compose.material.icons.outlined.PointOfSale
 import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material.icons.outlined.ReceiptLong
+import androidx.compose.material.icons.outlined.ReportProblem
 import androidx.compose.material.icons.outlined.RestartAlt
 import androidx.compose.material.icons.outlined.Storefront
 import androidx.compose.material.icons.outlined.WarningAmber
@@ -141,6 +143,8 @@ fun DashboardScreen(
     onNavigateToSchedule: () -> Unit = {},
     onNavigateToQrTracking: () -> Unit = {},
     onNavigateToAgreements: () -> Unit = {},
+    onNavigateToEventKits: () -> Unit = {},
+    onNavigateToDamageReports: () -> Unit = {},
     onNavigateToReceipts: () -> Unit,
     onNavigateToReceiptDetail: (String) -> Unit,
     onOpenHeldQuote: (String) -> Unit = {},
@@ -228,12 +232,16 @@ fun DashboardScreen(
         onNavigateToSchedule,
         onNavigateToQrTracking,
         onNavigateToAgreements,
+        onNavigateToEventKits,
+        onNavigateToDamageReports,
         onNavigateToShift,
         onNavigateToCustomers,
         onNavigateToReports,
     ) {
         listOf(
             QuickActionItem("Rent Desk", Icons.Outlined.PointOfSale, "dash_action_checkout", onNavigateToCheckout),
+            QuickActionItem("Event Kits", Icons.Outlined.Layers, "dash_action_event_kits", onNavigateToEventKits),
+            QuickActionItem("Damage Log", Icons.Outlined.ReportProblem, "dash_action_damage_reports", onNavigateToDamageReports),
             QuickActionItem("QR Track", Icons.Outlined.QrCodeScanner, "dash_action_qr_tracking", onNavigateToQrTracking),
             QuickActionItem("Contracts", Icons.Outlined.Description, "dash_action_agreements", onNavigateToAgreements),
             QuickActionItem("Schedule", Icons.Outlined.CalendarMonth, "dash_action_schedule", onNavigateToSchedule),

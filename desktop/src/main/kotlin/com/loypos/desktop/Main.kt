@@ -17,9 +17,11 @@ import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Inventory2
+import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.PeopleOutline
 import androidx.compose.material.icons.outlined.PointOfSale
 import androidx.compose.material.icons.outlined.QrCodeScanner
+import androidx.compose.material.icons.outlined.ReportProblem
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -51,9 +53,13 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.loypos.desktop.data.DesktopRepository
+import com.loypos.desktop.model.DesktopEventKit
+import com.loypos.desktop.model.DesktopRentalOrder
 import com.loypos.desktop.ui.AgreementTemplatesView
 import com.loypos.desktop.ui.ClientsView
+import com.loypos.desktop.ui.DesktopDamageReportsView
 import com.loypos.desktop.ui.DesktopDashboardView
+import com.loypos.desktop.ui.DesktopEventKitsView
 import com.loypos.desktop.ui.DesktopSettingsView
 import com.loypos.desktop.ui.EquipmentView
 import com.loypos.desktop.ui.LoyBorder
@@ -71,8 +77,10 @@ import kotlinx.coroutines.launch
 private enum class DesktopTab(val label: String, val icon: ImageVector) {
     DASHBOARD("Dashboard", Icons.Outlined.Dashboard),
     RENT_DESK("Rent Desk", Icons.Outlined.PointOfSale),
+    EVENT_KITS("Event Kits", Icons.Outlined.Layers),
     SCHEDULE("Schedule", Icons.Outlined.CalendarMonth),
     RENTALS("Rentals", Icons.AutoMirrored.Outlined.ReceiptLong),
+    DAMAGE_LOG("Damage Log", Icons.Outlined.ReportProblem),
     QR_TRACKING("QR Track", Icons.Outlined.QrCodeScanner),
     AGREEMENTS("Contracts", Icons.Outlined.Description),
     EQUIPMENT("Equipment", Icons.Outlined.Inventory2),
@@ -100,11 +108,16 @@ private fun DesktopShell(repository: DesktopRepository) {
     val snapshot by repository.state.collectAsState()
     var activeTab by remember { mutableStateOf(DesktopTab.RENT_DESK) }
     var pendingRentDeskStartMs by remember { mutableStateOf<Long?>(null) }
+    var pendingKitToAdd by remember { mutableStateOf<DesktopEventKit?>(null) }
+    var pendingDamageOrder by remember { mutableStateOf<DesktopRentalOrder?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
     val activeOutCount = remember(snapshot.orders) {
         snapshot.orders.count { it.isRentalOut }
+    }
+    val openDamageCount = remember(snapshot.damageReports) {
+        snapshot.damageReports.count { it.status != "resolved" }
     }
 
     fun showToast(msg: String) {
@@ -154,12 +167,18 @@ private fun DesktopShell(repository: DesktopRepository) {
                         selected = activeTab == tab,
                         onClick = { activeTab = tab },
                         icon = {
-                            if (tab == DesktopTab.RENTALS && activeOutCount > 0) {
-                                BadgedBox(badge = { Badge { Text("$activeOutCount") } }) {
-                                    Icon(tab.icon, contentDescription = tab.label)
+                            when {
+                                tab == DesktopTab.RENTALS && activeOutCount > 0 -> {
+                                    BadgedBox(badge = { Badge { Text("$activeOutCount") } }) {
+                                        Icon(tab.icon, contentDescription = tab.label)
+                                    }
                                 }
-                            } else {
-                                Icon(tab.icon, contentDescription = tab.label)
+                                tab == DesktopTab.DAMAGE_LOG && openDamageCount > 0 -> {
+                                    BadgedBox(badge = { Badge { Text("$openDamageCount") } }) {
+                                        Icon(tab.icon, contentDescription = tab.label)
+                                    }
+                                }
+                                else -> Icon(tab.icon, contentDescription = tab.label)
                             }
                         },
                         label = { Text(tab.label, style = MaterialTheme.typography.labelSmall) },
@@ -183,13 +202,27 @@ private fun DesktopShell(repository: DesktopRepository) {
                         onOpenSchedule = { activeTab = DesktopTab.SCHEDULE },
                         onOpenQrTracking = { activeTab = DesktopTab.QR_TRACKING },
                         onOpenAgreements = { activeTab = DesktopTab.AGREEMENTS },
+                        onOpenEventKits = { activeTab = DesktopTab.EVENT_KITS },
+                        onOpenDamageLog = { activeTab = DesktopTab.DAMAGE_LOG },
                     )
                     DesktopTab.RENT_DESK -> RentDeskView(
                         repository = repository,
                         snapshot = snapshot,
                         selectedStartDateMs = pendingRentDeskStartMs,
                         onConsumeSelectedStartDate = { pendingRentDeskStartMs = null },
+                        pendingKitToAdd = pendingKitToAdd,
+                        onConsumePendingKit = { pendingKitToAdd = null },
                         onOpenSchedule = { activeTab = DesktopTab.SCHEDULE },
+                        onOpenEventKits = { activeTab = DesktopTab.EVENT_KITS },
+                        onToast = ::showToast,
+                    )
+                    DesktopTab.EVENT_KITS -> DesktopEventKitsView(
+                        repository = repository,
+                        snapshot = snapshot,
+                        onAddKitToOrder = { kit ->
+                            pendingKitToAdd = kit
+                            activeTab = DesktopTab.RENT_DESK
+                        },
                         onToast = ::showToast,
                     )
                     DesktopTab.SCHEDULE -> RentalCalendarView(
@@ -204,6 +237,17 @@ private fun DesktopShell(repository: DesktopRepository) {
                     DesktopTab.RENTALS -> RentalOrdersView(
                         repository = repository,
                         snapshot = snapshot,
+                        onReportDamage = { order ->
+                            pendingDamageOrder = order
+                            activeTab = DesktopTab.DAMAGE_LOG
+                        },
+                        onToast = ::showToast,
+                    )
+                    DesktopTab.DAMAGE_LOG -> DesktopDamageReportsView(
+                        repository = repository,
+                        snapshot = snapshot,
+                        prefillOrder = pendingDamageOrder,
+                        onConsumePrefillOrder = { pendingDamageOrder = null },
                         onToast = ::showToast,
                     )
                     DesktopTab.QR_TRACKING -> QrTrackingView(

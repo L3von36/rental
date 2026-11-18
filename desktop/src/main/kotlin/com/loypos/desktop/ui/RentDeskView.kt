@@ -34,6 +34,7 @@ import androidx.compose.material.icons.outlined.Clear
 import androidx.compose.material.icons.outlined.CreditCard
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Event
+import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.LocalOffer
 import androidx.compose.material.icons.outlined.Payments
 import androidx.compose.material.icons.outlined.PersonOutline
@@ -87,6 +88,7 @@ import com.loypos.desktop.data.DesktopRepository
 import com.loypos.desktop.model.DesktopCartLine
 import com.loypos.desktop.model.DesktopClient
 import com.loypos.desktop.model.DesktopEquipment
+import com.loypos.desktop.model.DesktopEventKit
 import com.loypos.desktop.model.DesktopHeldQuote
 import com.loypos.desktop.model.DesktopRentalOrder
 import com.loypos.desktop.model.DesktopStoreSnapshot
@@ -98,7 +100,10 @@ fun RentDeskView(
     snapshot: DesktopStoreSnapshot,
     selectedStartDateMs: Long? = null,
     onConsumeSelectedStartDate: () -> Unit = {},
+    pendingKitToAdd: DesktopEventKit? = null,
+    onConsumePendingKit: () -> Unit = {},
     onOpenSchedule: () -> Unit = {},
+    onOpenEventKits: () -> Unit = {},
     onToast: (String) -> Unit,
 ) {
     val sym = snapshot.settings.currencySymbol
@@ -180,6 +185,61 @@ fun RentDeskView(
         }
     }
 
+    fun addEventKit(kit: DesktopEventKit) {
+        if (kit.items.isEmpty()) {
+            onToast("\"${kit.name}\" has no equipment items")
+            return
+        }
+        val catalogById = snapshot.items.associateBy { it.id }
+        var nextCart = cartLines
+        var addedCount = 0
+        var partialCount = 0
+        kit.items.forEach { kitItem ->
+            val equip = catalogById[kitItem.itemId] ?: return@forEach
+            val existingQty = nextCart.firstOrNull { it.itemId == equip.id }?.qty ?: 0.0
+            val addQty = if (equip.trackStock) {
+                val room = (equip.stock - existingQty).coerceAtLeast(0.0)
+                if (room < kitItem.qty) partialCount++
+                room.coerceAtMost(kitItem.qty)
+            } else {
+                kitItem.qty
+            }
+            if (addQty > 0.0) {
+                addedCount++
+                nextCart = if (existingQty <= 0.0) {
+                    nextCart + DesktopCartLine(
+                        itemId = equip.id,
+                        name = equip.name,
+                        dailyRateCents = equip.priceCents,
+                        qty = addQty,
+                        rentalDays = rentalDays,
+                    )
+                } else {
+                    nextCart.map {
+                        if (it.itemId == equip.id) it.copy(qty = existingQty + addQty) else it
+                    }
+                }
+            }
+        }
+        cartLines = nextCart
+        if (kit.discountPercent > 0.0 && discountPercent == 0.0 && fixedDiscountCents == 0L) {
+            discountPercent = kit.discountPercent
+        }
+        if (note.isBlank()) note = "Kit: ${kit.name}"
+        when {
+            addedCount == 0 -> onToast("No available depot stock for ${kit.name}")
+            partialCount > 0 -> onToast("Added ${kit.name} ($partialCount item(s) capped by available stock)")
+            else -> onToast("Added kit \"${kit.name}\" ($addedCount items)")
+        }
+    }
+
+    LaunchedEffect(pendingKitToAdd) {
+        if (pendingKitToAdd != null) {
+            addEventKit(pendingKitToAdd)
+            onConsumePendingKit()
+        }
+    }
+
     fun clearDesk() {
         cartLines = emptyList()
         rentalDays = 1
@@ -258,6 +318,50 @@ fun RentDeskView(
                                     selectedLabelColor = LoyGreenDark,
                                 ),
                             )
+                        }
+                    }
+
+                    if (snapshot.eventKits.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                Icon(Icons.Outlined.Layers, contentDescription = null, tint = LoyGreenDark, modifier = Modifier.size(16.dp))
+                                Text("Event Kits:", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = LoyGreenDark)
+                            }
+                            LazyRow(
+                                modifier = Modifier.weight(1f),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                items(snapshot.eventKits, key = { it.id }) { kit ->
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = LoyGreenLight.copy(alpha = 0.65f),
+                                        border = BorderStroke(1.dp, LoyGreen.copy(alpha = 0.35f)),
+                                        modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { addEventKit(kit) },
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                        ) {
+                                            Icon(Icons.Outlined.Add, contentDescription = null, tint = LoyGreenDark, modifier = Modifier.size(14.dp))
+                                            Text(kit.name, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, color = LoyGreenDark)
+                                            if (kit.discountPercent > 0.0) {
+                                                Text("-${formatQty(kit.discountPercent)}%", style = MaterialTheme.typography.labelSmall, color = LoyInfo, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            TextButton(onClick = onOpenEventKits, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) {
+                                Text("Manage Kits", style = MaterialTheme.typography.labelSmall)
+                            }
                         }
                     }
                 }

@@ -15,9 +15,12 @@ import com.loypos.desktop.model.DesktopAgreementTemplate
 import com.loypos.desktop.model.DesktopCartLine
 import com.loypos.desktop.model.DesktopCategory
 import com.loypos.desktop.model.DesktopClient
+import com.loypos.desktop.model.DesktopDamageReport
 import com.loypos.desktop.model.DesktopEquipment
 import com.loypos.desktop.model.DesktopEquipmentScanLog
 import com.loypos.desktop.model.DesktopEquipmentUnit
+import com.loypos.desktop.model.DesktopEventKit
+import com.loypos.desktop.model.DesktopEventKitItem
 import com.loypos.desktop.model.DesktopHeldQuote
 import com.loypos.desktop.model.DesktopMonthlyIncomePoint
 import com.loypos.desktop.model.DesktopRentalLine
@@ -76,6 +79,9 @@ class DesktopRepository(
                         equipmentUnits = parsed.equipmentUnits.ifEmpty {
                             buildInitialUnits(parsed.items, now)
                         },
+                        eventKits = parsed.eventKits.ifEmpty {
+                            DemoRentalCatalog.buildDefaultEventKits(now)
+                        },
                     )
                     if (hydrated != parsed) saveSnapshot(hydrated)
                     return hydrated
@@ -118,6 +124,8 @@ class DesktopRepository(
             equipmentUnits = buildInitialUnits(items, now),
             scanLogs = emptyList(),
             agreementTemplates = DesktopRentalAgreementEngine.defaultTemplates(now),
+            eventKits = DemoRentalCatalog.buildDefaultEventKits(now),
+            damageReports = emptyList(),
         )
     }
 
@@ -665,6 +673,137 @@ class DesktopRepository(
                 remaining
             }
             cur.copy(agreementTemplates = normalized)
+        }
+    }
+
+    // --- Event Kits / Bundles ---
+    fun saveEventKit(kit: DesktopEventKit): DesktopEventKit {
+        val now = nowMs()
+        val id = kit.id.ifBlank { newId() }
+        val normalizedItems = kit.items
+            .filter { it.itemId.isNotBlank() && it.qty > 0.0 }
+            .groupBy { it.itemId }
+            .values
+            .map { group ->
+                DesktopEventKitItem(
+                    itemId = group.first().itemId,
+                    itemName = group.first().itemName,
+                    qty = group.sumOf { it.qty },
+                )
+            }
+        val clean = kit.copy(
+            id = id,
+            name = kit.name.trim().ifEmpty { "Event Kit" },
+            description = kit.description.trim(),
+            category = kit.category.trim().ifEmpty { "Event Package" },
+            discountPercent = kit.discountPercent.coerceIn(0.0, 90.0),
+            createdAt = if (kit.createdAt == 0L) now else kit.createdAt,
+            updatedAt = now,
+            items = normalizedItems,
+        )
+        mutate { cur ->
+            val exists = cur.eventKits.any { it.id == id }
+            val nextKits = if (exists) {
+                cur.eventKits.map { if (it.id == id) clean else it }
+            } else {
+                listOf(clean) + cur.eventKits
+            }
+            cur.copy(eventKits = nextKits)
+        }
+        return clean
+    }
+
+    fun deleteEventKit(kitId: String) {
+        mutate { cur -> cur.copy(eventKits = cur.eventKits.filterNot { it.id == kitId }) }
+    }
+
+    // --- Equipment Damage Report Log ---
+    fun saveDamagePhoto(sourceFile: File): String {
+        val photosDir = File(dataDir, "damage-photos").apply { mkdirs() }
+        val ext = sourceFile.extension.lowercase().ifBlank { "jpg" }
+        val dest = File(photosDir, "${newId()}.$ext")
+        sourceFile.copyTo(dest, overwrite = true)
+        return dest.absolutePath
+    }
+
+    fun saveDamageReport(
+        report: DesktopDamageReport,
+        markUnitMaintenance: Boolean = true,
+    ): DesktopDamageReport {
+        val now = nowMs()
+        val id = report.id.ifBlank { newId() }
+        val cleanStatus = report.status.ifBlank { "open" }
+        val resolvedAt = if (cleanStatus == "resolved") (report.resolvedAt ?: now) else null
+        val clean = report.copy(
+            id = id,
+            itemId = report.itemId.trim(),
+            itemSku = report.itemSku.trim(),
+            itemName = report.itemName.trim().ifEmpty { report.itemId.trim() },
+            unitCode = report.unitCode.trim(),
+            customerName = report.customerName.trim(),
+            severity = report.severity.ifBlank { "minor" },
+            status = cleanStatus,
+            repairCostCents = report.repairCostCents.coerceAtLeast(0L),
+            notes = report.notes.trim(),
+            photoPaths = report.photoPaths.filter { it.isNotBlank() }.distinct(),
+            reportedBy = report.reportedBy.trim().ifEmpty { "Desktop Operator" },
+            createdAt = if (report.createdAt == 0L) now else report.createdAt,
+            resolvedAt = resolvedAt,
+        )
+        mutate { cur ->
+            val exists = cur.damageReports.any { it.id == id }
+            val nextReports = if (exists) {
+                cur.damageReports.map { if (it.id == id) clean else it }
+            } else {
+                listOf(clean) + cur.damageReports
+            }
+            val nextUnits = if (markUnitMaintenance && clean.unitCode.isNotBlank()) {
+                val noteSummary = clean.notes.take(120).ifEmpty { "Damage logged (${clean.severity})" }
+                cur.equipmentUnits.map { u ->
+                    if (u.unitCode.equals(clean.unitCode, ignoreCase = true)) {
+                        u.copy(
+                            status = "maintenance",
+                            conditionNote = noteSummary,
+                            lastScanAt = now,
+                            updatedAt = now,
+                        )
+                    } else {
+                        u
+                    }
+                }
+            } else {
+                cur.equipmentUnits
+            }
+            cur.copy(damageReports = nextReports, equipmentUnits = nextUnits)
+        }
+        return clean
+    }
+
+    fun updateDamageReportStatus(reportId: String, status: String) {
+        val now = nowMs()
+        mutate { cur ->
+            cur.copy(
+                damageReports = cur.damageReports.map { r ->
+                    if (r.id == reportId) {
+                        r.copy(
+                            status = status,
+                            resolvedAt = if (status == "resolved") now else null,
+                        )
+                    } else {
+                        r
+                    }
+                }
+            )
+        }
+    }
+
+    fun deleteDamageReport(reportId: String) {
+        val target = _state.value.damageReports.firstOrNull { it.id == reportId }
+        mutate { cur ->
+            cur.copy(damageReports = cur.damageReports.filterNot { it.id == reportId })
+        }
+        target?.photoPaths?.forEach { path ->
+            runCatching { File(path).delete() }
         }
     }
 
