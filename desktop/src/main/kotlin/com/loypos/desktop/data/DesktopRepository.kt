@@ -16,6 +16,7 @@ import com.loypos.desktop.model.DesktopCartLine
 import com.loypos.desktop.model.DesktopCategory
 import com.loypos.desktop.model.DesktopClient
 import com.loypos.desktop.model.DesktopDamageReport
+import com.loypos.desktop.model.DesktopDeliveryStop
 import com.loypos.desktop.model.DesktopEquipment
 import com.loypos.desktop.model.DesktopEquipmentScanLog
 import com.loypos.desktop.model.DesktopEquipmentUnit
@@ -86,6 +87,9 @@ class DesktopRepository(
                         maintenanceSchedules = parsed.maintenanceSchedules.ifEmpty {
                             DemoRentalCatalog.buildDefaultMaintenanceSchedules(now)
                         },
+                        deliveryStops = parsed.deliveryStops.ifEmpty {
+                            DemoRentalCatalog.buildDefaultDeliveryStops(now)
+                        },
                     )
                     if (hydrated != parsed) saveSnapshot(hydrated)
                     return hydrated
@@ -131,6 +135,7 @@ class DesktopRepository(
             eventKits = DemoRentalCatalog.buildDefaultEventKits(now),
             damageReports = emptyList(),
             maintenanceSchedules = DemoRentalCatalog.buildDefaultMaintenanceSchedules(now),
+            deliveryStops = DemoRentalCatalog.buildDefaultDeliveryStops(now),
         )
     }
 
@@ -1109,6 +1114,100 @@ class DesktopRepository(
         return count
     }
 
+    // --- Delivery & Pickup Dispatch Board ---
+    fun saveDeliveryStop(stop: DesktopDeliveryStop) {
+        mutate { state ->
+            val existing = state.deliveryStops.toMutableList()
+            val idx = existing.indexOfFirst { it.id == stop.id }
+            val now = nowMs()
+            val toSave = if (stop.createdAt == 0L) stop.copy(createdAt = now) else stop
+            if (idx >= 0) {
+                existing[idx] = toSave
+            } else {
+                existing.add(0, toSave)
+            }
+            state.copy(deliveryStops = existing)
+        }
+    }
+
+    fun deleteDeliveryStop(id: String) {
+        mutate { state ->
+            state.copy(deliveryStops = state.deliveryStops.filterNot { it.id == id })
+        }
+    }
+
+    fun advanceDeliveryStop(id: String) {
+        mutate { state ->
+            val now = nowMs()
+            val list = state.deliveryStops.map { s ->
+                when {
+                    s.id == id && s.status == "scheduled" -> s.copy(status = "en_route")
+                    s.id == id && s.status == "en_route" -> s.copy(status = "done", completedAtMs = now)
+                    else -> s
+                }
+            }
+            state.copy(deliveryStops = list)
+        }
+    }
+
+    fun failDeliveryStop(id: String) {
+        mutate { state ->
+            val now = nowMs()
+            val list = state.deliveryStops.map { s ->
+                if (s.id == id) s.copy(status = "failed", completedAtMs = now) else s
+            }
+            state.copy(deliveryStops = list)
+        }
+    }
+
+    fun scheduleStopsForOrder(orderId: String): Int {
+        val snap = _state.value
+        val order = snap.orders.firstOrNull { it.id == orderId } ?: return 0
+        if (order.eventVenue.isBlank()) return 0
+        val existingTypes = snap.deliveryStops.filter { it.orderId == orderId }.map { it.type }.toSet()
+        val toCreate = mutableListOf<DesktopDeliveryStop>()
+        val now = nowMs()
+        val itemsSummary = order.lines.joinToString(", ") { l ->
+            "${formatQty(l.qty)}× ${l.name}"
+        }.take(180)
+        if ("delivery" !in existingTypes) {
+            toCreate += DesktopDeliveryStop(
+                id = newId(),
+                type = "delivery",
+                orderId = order.id,
+                orderNumber = order.number,
+                customerName = order.customerName ?: "",
+                eventName = order.eventName,
+                venue = order.eventVenue,
+                scheduledMs = maxOf(order.rentalStartMs, now),
+                itemsSummary = itemsSummary,
+                status = "scheduled",
+                createdAt = now,
+            )
+        }
+        if ("pickup" !in existingTypes) {
+            toCreate += DesktopDeliveryStop(
+                id = newId(),
+                type = "pickup",
+                orderId = order.id,
+                orderNumber = order.number,
+                customerName = order.customerName ?: "",
+                eventName = order.eventName,
+                venue = order.eventVenue,
+                scheduledMs = maxOf(order.rentalEndMs, now + 86_400_000L),
+                itemsSummary = itemsSummary,
+                notes = "Pickup after event — verify all units back against the packing list.",
+                status = "scheduled",
+                createdAt = now,
+            )
+        }
+        if (toCreate.isEmpty()) return 0
+        mutate { state ->
+            state.copy(deliveryStops = toCreate + state.deliveryStops)
+        }
+        return toCreate.size
+    }
+
     fun exportRentalHistoryCsv(targetFile: File): Int {
         val snapshot = _state.value
         val sb = StringBuilder()
@@ -1155,6 +1254,13 @@ class DesktopRepository(
         sb.append("Total Security Deposits Held: ${formatCents(totalDeposits, sym)}\n")
         sb.append("Active Fleet Inventory SKUs: ${snapshot.items.size}\n")
         sb.append("Open Maintenance Tasks: ${snapshot.maintenanceSchedules.count { !it.isDue(nowMs()) && it.status != "completed" }}\n\n")
+        val stops = snapshot.deliveryStops
+        val activeStops = stops.filter { it.isActive }
+        sb.append("Dispatch Board — Active Runs: ${activeStops.size}, Completed: ${stops.count { it.status == "done" }}, Failed: ${stops.count { it.status == "failed" }}\n")
+        activeStops.sortedBy { it.scheduledMs }.take(10).forEach { s ->
+            sb.append("  ${if (s.isDelivery) "DELIVERY" else "PICKUP"} ${formatDateTime(s.scheduledMs)} — ${s.venue}${if (s.driverName.isNotBlank()) " (${s.driverName})" else ""}\n")
+        }
+        sb.append("\n")
         sb.append("--------------------------------------------------------\n")
         sb.append(" ITEMIZED RENTAL HISTORY LOGS\n")
         sb.append("--------------------------------------------------------\n")

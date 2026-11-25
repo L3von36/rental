@@ -32,6 +32,7 @@ import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.Layers
+import androidx.compose.material.icons.outlined.LocalShipping
 import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.PeopleOutline
 import androidx.compose.material.icons.outlined.PointOfSale
@@ -67,7 +68,9 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.loypos.desktop.core.DesktopRentalReturnReminderCalculator
+import com.loypos.desktop.core.dayStartMs
 import com.loypos.desktop.core.nowMs
+import java.time.LocalDate
 import com.loypos.desktop.data.DesktopRepository
 import com.loypos.desktop.model.DesktopEventKit
 import com.loypos.desktop.model.DesktopRentalOrder
@@ -78,6 +81,7 @@ import com.loypos.desktop.ui.DesktopDamageReportsView
 import com.loypos.desktop.ui.DesktopDashboardView
 import com.loypos.desktop.ui.DesktopEventKitsView
 import com.loypos.desktop.ui.DesktopMaintenanceView
+import com.loypos.desktop.ui.DesktopLogisticsView
 import com.loypos.desktop.ui.DesktopPrimaryButton
 import com.loypos.desktop.ui.DesktopSettingsView
 import com.loypos.desktop.ui.EquipmentView
@@ -128,6 +132,7 @@ private enum class DesktopTab(
     RENT_DESK("Rent Desk", "Create multi-day bookings, kits & quotes", Icons.Outlined.PointOfSale, DesktopTabGroup.OPERATIONS),
     RENTALS("Rentals", "Active dispatches, 24h due returns & refunds", Icons.AutoMirrored.Outlined.ReceiptLong, DesktopTabGroup.OPERATIONS),
     SCHEDULE("Schedule", "Monthly dispatch calendar & capacity matrix", Icons.Outlined.CalendarMonth, DesktopTabGroup.OPERATIONS),
+    LOGISTICS("Dispatch", "Delivery & pickup runs to event venues", Icons.Outlined.LocalShipping, DesktopTabGroup.OPERATIONS),
     EQUIPMENT("Equipment", "Fleet inventory, daily rates & safety minimums", Icons.Outlined.Inventory2, DesktopTabGroup.FLEET),
     EVENT_KITS("Event Kits", "Pre-bundled equipment packages & discounts", Icons.Outlined.Layers, DesktopTabGroup.FLEET),
     QR_TRACKING("QR Track", "Serialized unit tags, scanner & printable labels", Icons.Outlined.QrCodeScanner, DesktopTabGroup.FLEET),
@@ -178,6 +183,13 @@ private fun DesktopShell(repository: DesktopRepository) {
     }
     val dueMaintenanceCount = remember(snapshot.maintenanceSchedules, now) {
         snapshot.maintenanceSchedules.count { it.isDue(now) }
+    }
+    val startOfToday = remember(now) { dayStartMs(LocalDate.now()) }
+    val todayDispatchCount = remember(snapshot.deliveryStops, startOfToday) {
+        snapshot.deliveryStops.count { it.isActive && it.scheduledMs in startOfToday until (startOfToday + 86_400_000L) }
+    }
+    val overdueDispatchCount = remember(snapshot.deliveryStops, now) {
+        snapshot.deliveryStops.count { it.isOverdue(now) }
     }
 
     fun showToast(msg: String) {
@@ -274,12 +286,18 @@ private fun DesktopShell(repository: DesktopRepository) {
                                 DesktopTab.EQUIPMENT -> if (lowFleetCount > 0) "$lowFleetCount" else null
                                 DesktopTab.DAMAGE_LOG -> if (openDamageCount > 0) "$openDamageCount" else null
                                 DesktopTab.MAINTENANCE -> if (dueMaintenanceCount > 0) "$dueMaintenanceCount due" else null
+                                DesktopTab.LOGISTICS -> when {
+                                    overdueDispatchCount > 0 -> "$overdueDispatchCount late"
+                                    todayDispatchCount > 0 -> "$todayDispatchCount today"
+                                    else -> null
+                                }
                                 else -> null
                             }
                             val badgeWarning = (tab == DesktopTab.RENTALS && dueWithin24h.isNotEmpty()) ||
                                 tab == DesktopTab.EQUIPMENT ||
                                 tab == DesktopTab.DAMAGE_LOG ||
-                                tab == DesktopTab.MAINTENANCE
+                                tab == DesktopTab.MAINTENANCE ||
+                                (tab == DesktopTab.LOGISTICS && overdueDispatchCount > 0)
 
                             SidebarNavRow(
                                 tab = tab,
@@ -513,6 +531,11 @@ private fun DesktopShell(repository: DesktopRepository) {
                             onToast = ::showToast,
                         )
                         DesktopTab.MAINTENANCE -> DesktopMaintenanceView(
+                            repository = repository,
+                            snapshot = snapshot,
+                            onToast = ::showToast,
+                        )
+                        DesktopTab.LOGISTICS -> DesktopLogisticsView(
                             repository = repository,
                             snapshot = snapshot,
                             onToast = ::showToast,

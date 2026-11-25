@@ -37,8 +37,9 @@ import kotlinx.coroutines.launch
         EventKitItemEntity::class,
         DamageReportEntity::class,
         MaintenanceScheduleEntity::class,
+        DeliveryStopEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = false,
 )
 abstract class LoyPosDatabase : RoomDatabase() {
@@ -253,6 +254,36 @@ abstract class LoyPosDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS delivery_stops (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        type TEXT NOT NULL,
+                        receipt_id TEXT,
+                        receipt_number INTEGER,
+                        customer_name TEXT NOT NULL,
+                        event_name TEXT NOT NULL,
+                        venue TEXT NOT NULL,
+                        contact_phone TEXT NOT NULL,
+                        scheduled_ms INTEGER NOT NULL,
+                        driver_name TEXT NOT NULL,
+                        vehicle TEXT NOT NULL,
+                        items_summary TEXT NOT NULL,
+                        notes TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        completed_at_ms INTEGER,
+                        created_at INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_delivery_stops_receipt_id ON delivery_stops(receipt_id)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_delivery_stops_scheduled_ms ON delivery_stops(scheduled_ms)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_delivery_stops_created_at ON delivery_stops(created_at)")
+            }
+        }
+
         fun getInstance(context: Context): LoyPosDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -260,7 +291,7 @@ abstract class LoyPosDatabase : RoomDatabase() {
                     LoyPosDatabase::class.java,
                     DB_NAME,
                 )
-                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {

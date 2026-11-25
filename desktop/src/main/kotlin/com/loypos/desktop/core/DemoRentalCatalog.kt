@@ -2,11 +2,13 @@ package com.loypos.desktop.core
 
 import com.loypos.desktop.model.DesktopCategory
 import com.loypos.desktop.model.DesktopClient
+import com.loypos.desktop.model.DesktopDeliveryStop
 import com.loypos.desktop.model.DesktopEquipment
 import com.loypos.desktop.model.DesktopEventKit
 import com.loypos.desktop.model.DesktopEventKitItem
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
+import java.time.LocalDate
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
@@ -247,6 +249,79 @@ object DemoRentalCatalog {
             ),
         ),
     )
+
+    fun buildDefaultDeliveryStops(now: Long = nowMs()): List<com.loypos.desktop.model.DesktopDeliveryStop> {
+        val today0900 = dayStartMs(LocalDate.now()) + 9L * 3_600_000L
+        val today1300 = today0900 + 4L * 3_600_000L
+        val tomorrow0730 = today0900 + 86_400_000L - 1_800_000L
+        val tomorrow1200 = tomorrow0730 + 4L * 3_600_000L + 1_800_000L
+        return listOf(
+            com.loypos.desktop.model.DesktopDeliveryStop(
+                id = "stop-demo-1",
+                type = "delivery",
+                orderNumber = null,
+                customerName = "Grand Horizon Events",
+                eventName = "Riverside Wedding Gala",
+                venue = "Lakeside Grand Ballroom — Dock B",
+                contactPhone = "+1 555-0148",
+                scheduledMs = today0900,
+                driverName = "Marcus T.",
+                vehicle = "Isuzu NPR Box Truck",
+                itemsSummary = "20× Gold Chiavari Chair, 2× 60\" Round Table, 1× PA Speaker + Stand",
+                notes = "Service elevator access after 08:30; ask for venue manager Rosa.",
+                status = "scheduled",
+                createdAt = now,
+            ),
+            com.loypos.desktop.model.DesktopDeliveryStop(
+                id = "stop-demo-2",
+                type = "delivery",
+                orderNumber = null,
+                customerName = "Apex Conferences & Expo",
+                eventName = "Annual Tech Summit — Day 1",
+                venue = "Convention Plaza, Hall C",
+                contactPhone = "+1 555-0192",
+                scheduledMs = today1300,
+                driverName = "Priya K.",
+                vehicle = "Sprinter Cargo Van 02",
+                itemsSummary = "6× Folding Banquet Table, 30× Padded Chair, 2× PA Speaker",
+                notes = "Loading dock closes at 15:00 sharp — stagehand will meet driver.",
+                status = "scheduled",
+                createdAt = now,
+            ),
+            com.loypos.desktop.model.DesktopDeliveryStop(
+                id = "stop-demo-3",
+                type = "pickup",
+                orderNumber = null,
+                customerName = "Grand Horizon Events",
+                eventName = "Riverside Wedding Gala",
+                venue = "Lakeside Grand Ballroom — Dock B",
+                contactPhone = "+1 555-0148",
+                scheduledMs = tomorrow0730,
+                driverName = "Marcus T.",
+                vehicle = "Isuzu NPR Box Truck",
+                itemsSummary = "Same load as delivery — verify counts before leaving site",
+                notes = "Inspect linens for stains on site; flag damage log if torn.",
+                status = "scheduled",
+                createdAt = now,
+            ),
+            com.loypos.desktop.model.DesktopDeliveryStop(
+                id = "stop-demo-4",
+                type = "pickup",
+                orderNumber = null,
+                customerName = "Apex Conferences & Expo",
+                eventName = "Annual Tech Summit — Breakdown",
+                venue = "Convention Plaza, Hall C",
+                contactPhone = "+1 555-0192",
+                scheduledMs = tomorrow1200,
+                driverName = "Priya K.",
+                vehicle = "Sprinter Cargo Van 02",
+                itemsSummary = "6× Folding Banquet Table, 30× Padded Chair, 2× PA Speaker",
+                notes = "Cable coil & case check with venue AV tech before sign-off.",
+                status = "scheduled",
+                createdAt = now,
+            ),
+        )
+    }
 
     fun buildDefaultMaintenanceSchedules(now: Long = nowMs()): List<com.loypos.desktop.model.DesktopMaintenanceSchedule> = listOf(
         com.loypos.desktop.model.DesktopMaintenanceSchedule(

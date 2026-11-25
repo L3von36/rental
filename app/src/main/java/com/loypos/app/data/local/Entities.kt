@@ -495,6 +495,48 @@ data class DamageReportEntity(
     }
 }
 
+@Entity(
+    tableName = "delivery_stops",
+    indices = [
+        Index(value = ["receipt_id"]),
+        Index(value = ["scheduled_ms"]),
+        Index(value = ["created_at"]),
+    ],
+)
+data class DeliveryStopEntity(
+    @PrimaryKey val id: String,
+    val type: String = TYPE_DELIVERY, // "delivery" | "pickup"
+    @ColumnInfo(name = "receipt_id") val receiptId: String? = null,
+    @ColumnInfo(name = "receipt_number") val receiptNumber: Int? = null,
+    @ColumnInfo(name = "customer_name") val customerName: String = "",
+    @ColumnInfo(name = "event_name") val eventName: String = "",
+    val venue: String = "",
+    @ColumnInfo(name = "contact_phone") val contactPhone: String = "",
+    @ColumnInfo(name = "scheduled_ms") val scheduledMs: Long,
+    @ColumnInfo(name = "driver_name") val driverName: String = "",
+    val vehicle: String = "",
+    @ColumnInfo(name = "items_summary") val itemsSummary: String = "",
+    val notes: String = "",
+    val status: String = STATUS_SCHEDULED, // "scheduled" | "en_route" | "done" | "failed"
+    @ColumnInfo(name = "completed_at_ms") val completedAtMs: Long? = null,
+    @ColumnInfo(name = "created_at") val createdAt: Long = 0L,
+) {
+    val isDelivery: Boolean get() = type == TYPE_DELIVERY
+    val isActive: Boolean get() = status == STATUS_SCHEDULED || status == STATUS_EN_ROUTE
+
+    fun isOverdue(nowMs: Long): Boolean = isActive && scheduledMs in 1 until nowMs
+
+    companion object {
+        const val TYPE_DELIVERY = "delivery"
+        const val TYPE_PICKUP = "pickup"
+
+        const val STATUS_SCHEDULED = "scheduled"
+        const val STATUS_EN_ROUTE = "en_route"
+        const val STATUS_DONE = "done"
+        const val STATUS_FAILED = "failed"
+    }
+}
+
 data class CartLine(
     val itemId: String,
     val name: String,

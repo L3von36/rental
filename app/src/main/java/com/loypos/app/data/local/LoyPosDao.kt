@@ -552,6 +552,31 @@ interface LoyPosDao {
     @Query("SELECT COUNT(DISTINCT sales.id) FROM sale_items JOIN sales ON sale_items.receipt_id = sales.id WHERE sale_items.item_id = :itemId AND sales.status = 'completed'")
     suspend fun getRentalCountForItem(itemId: String): Int
 
+    // Delivery & Pickup Dispatch Stops
+    @Query("SELECT * FROM delivery_stops ORDER BY scheduled_ms ASC, created_at DESC")
+    fun observeDeliveryStops(): Flow<List<DeliveryStopEntity>>
+
+    @Query("SELECT * FROM delivery_stops ORDER BY scheduled_ms ASC, created_at DESC")
+    suspend fun getAllDeliveryStops(): List<DeliveryStopEntity>
+
+    @Query("SELECT * FROM delivery_stops WHERE receipt_id = :receiptId ORDER BY scheduled_ms ASC")
+    suspend fun getDeliveryStopsForReceipt(receiptId: String): List<DeliveryStopEntity>
+
+    @Query("SELECT COUNT(*) FROM delivery_stops")
+    suspend fun countDeliveryStops(): Int
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertDeliveryStop(stop: DeliveryStopEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertDeliveryStops(stops: List<DeliveryStopEntity>)
+
+    @Query("UPDATE delivery_stops SET status = :status, completed_at_ms = :completedAtMs WHERE id = :id")
+    suspend fun updateDeliveryStopStatus(id: String, status: String, completedAtMs: Long?)
+
+    @Query("DELETE FROM delivery_stops WHERE id = :id")
+    suspend fun deleteDeliveryStopById(id: String)
+
     // Counts for DB Health
     @Query("SELECT COUNT(*) FROM branches WHERE archived = 0") suspend fun countBranches(): Int
     @Query("SELECT COUNT(*) FROM categories") suspend fun countCategories(): Int

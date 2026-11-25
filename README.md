@@ -15,6 +15,10 @@ LoyPOS is an offline-first **Event Equipment Rental** POS and fleet management p
   - Dedicated **Rentals & Returns** tracking (`Out Now`, `Overdue`, `Returned`, `Refunded`).
   - **Mark Equipment Returned** restores rented fleet quantities back to available stock with double-restore guards.
   - 80mm thermal rental PDF receipts (Android) and plain-text / CSV receipt & ledger exports (Android + Desktop).
+- **Delivery & Pickup Dispatch Board**
+  - Plan **delivery** and **pickup** runs to event venues with driver/vehicle assignment, on-site contact, load/packing list, and stop notes (gate codes, dock hours).
+  - Stops auto-generate from rentals checked out with a venue (delivery at rental start, pickup after rental end), or can be scheduled manually from any active order.
+  - Run lifecycle tracking (`Scheduled` → `En Route` → `Done` / `Failed`) with today-run and overdue sidebar badges on both platforms.
 - **Back Office & CRM**
   - Client & Event Organizer directory, cash-drawer shifts (Android), daily revenue charts, multi-branch filtering, and optional Plesk MySQL REST cloud sync.
 - **Mobile <-> Desktop Portability**

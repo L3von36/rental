@@ -13,6 +13,7 @@ import com.loypos.desktop.core.computeRentalTotals
 import com.loypos.desktop.core.dayBoundsFor
 import com.loypos.desktop.core.dayStartMs
 import com.loypos.desktop.core.newId
+import com.loypos.desktop.core.nowMs
 import com.loypos.desktop.core.schedulesForDate
 import com.loypos.desktop.core.searchDesktopRentalAgreements
 import com.loypos.desktop.core.upcomingRentalsFrom
@@ -21,6 +22,7 @@ import com.loypos.desktop.model.DesktopAgreementTemplate
 import com.loypos.desktop.model.DesktopCartLine
 import com.loypos.desktop.model.DesktopClient
 import com.loypos.desktop.model.DesktopDamageReport
+import com.loypos.desktop.model.DesktopDeliveryStop
 import com.loypos.desktop.model.DesktopEventKit
 import com.loypos.desktop.model.DesktopEventKitItem
 import java.io.File
@@ -31,6 +33,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class DesktopRepositoryTest {
@@ -743,6 +746,153 @@ class DesktopRepositoryTest {
             assertEquals(dueSoonOrder.id, alerts[1].order.id)
             assertFalse(alerts[1].isOverdue)
             assertEquals("Due in 12h", com.loypos.desktop.core.DesktopRentalReturnReminderCalculator.formatRemainingLabel(alerts[1].msUntilDue))
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun dispatchBoardSeedsDemoRunsAndPersistsAcrossReload() {
+        val (repo, dir) = tempRepo()
+        try {
+            val stops = repo.state.value.deliveryStops
+            assertEquals(4, stops.size)
+            assertTrue(stops.any { it.type == "delivery" && it.driverName.isNotBlank() })
+            assertTrue(stops.any { it.type == "pickup" })
+            assertTrue(stops.all { it.venue.isNotBlank() })
+
+            // Save a custom stop and confirm it round-trips through the JSON snapshot file
+            repo.saveDeliveryStop(
+                DesktopDeliveryStop(
+                    id = "stop-custom-1",
+                    type = "delivery",
+                    customerName = "Sunset Corp",
+                    eventName = "Launch Party",
+                    venue = "Rooftop Deck 9",
+                    scheduledMs = nowMs() + 3_600_000L,
+                    driverName = "Alex",
+                    vehicle = "Van 01",
+                    itemsSummary = "2× PA Speaker",
+                )
+            )
+            assertEquals(5, repo.state.value.deliveryStops.size)
+
+            val reloaded = DesktopRepository(dir)
+            val persisted = reloaded.state.value.deliveryStops
+            assertEquals(5, persisted.size)
+            val custom = persisted.first { it.id == "stop-custom-1" }
+            assertEquals("Rooftop Deck 9", custom.venue)
+            assertEquals("Alex", custom.driverName)
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun dispatchStopLifecycleAdvancesScheduledEnRouteDoneAndFailPaths() {
+        val (repo, dir) = tempRepo()
+        try {
+            val now = nowMs()
+            repo.saveDeliveryStop(
+                DesktopDeliveryStop(
+                    id = "stop-life-1",
+                    type = "pickup",
+                    venue = "Hall C Dock",
+                    scheduledMs = now + 1_800_000L,
+                )
+            )
+            assertTrue(repo.state.value.deliveryStops.first { it.id == "stop-life-1" }.isActive)
+            assertNull(repo.state.value.deliveryStops.first { it.id == "stop-life-1" }.completedAtMs)
+
+            repo.advanceDeliveryStop("stop-life-1")
+            assertEquals("en_route", repo.state.value.deliveryStops.first { it.id == "stop-life-1" }.status)
+
+            repo.advanceDeliveryStop("stop-life-1")
+            val doneStop = repo.state.value.deliveryStops.first { it.id == "stop-life-1" }
+            assertEquals("done", doneStop.status)
+            assertNotNull(doneStop.completedAtMs)
+            assertFalse(doneStop.isActive)
+
+            // Failed path from a fresh scheduled stop
+            repo.saveDeliveryStop(
+                DesktopDeliveryStop(
+                    id = "stop-life-2",
+                    type = "delivery",
+                    venue = "Missed Address",
+                    scheduledMs = now + 1_800_000L,
+                )
+            )
+            repo.failDeliveryStop("stop-life-2")
+            val failed = repo.state.value.deliveryStops.first { it.id == "stop-life-2" }
+            assertEquals("failed", failed.status)
+            assertNotNull(failed.completedAtMs)
+
+            // Overdue detection for a stop scheduled in the past
+            repo.saveDeliveryStop(
+                DesktopDeliveryStop(
+                    id = "stop-life-3",
+                    type = "delivery",
+                    venue = "Late Venue",
+                    scheduledMs = now - 3_600_000L,
+                )
+            )
+            assertTrue(repo.state.value.deliveryStops.first { it.id == "stop-life-3" }.isOverdue(nowMs()))
+
+            // Delete removes the stop
+            repo.deleteDeliveryStop("stop-life-2")
+            assertTrue(repo.state.value.deliveryStops.none { it.id == "stop-life-2" })
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun scheduleStopsForOrderCreatesDeliveryAndPickupPairOnlyOnce() {
+        val (repo, dir) = tempRepo()
+        try {
+            val tent = repo.state.value.items.first { it.id == "eq-001" }
+            val order = repo.checkoutRental(
+                lines = listOf(DesktopCartLine(tent.id, tent.name, tent.priceCents, 2.0, 3)),
+                rentalDays = 3,
+                paymentType = "card",
+                paidCents = 0L,
+                discountPercent = 0.0,
+                fixedDiscountCents = 0L,
+                depositCents = 0L,
+                client = repo.state.value.clients.first(),
+                eventName = "Corporate Gala",
+                eventVenue = "Convention Plaza",
+                note = "",
+            )
+
+            val created = repo.scheduleStopsForOrder(order.id)
+            assertEquals(2, created)
+
+            val stops = repo.state.value.deliveryStops.filter { it.orderId == order.id }
+            assertEquals(2, stops.size)
+            assertTrue(stops.any { it.type == "delivery" && it.venue == "Convention Plaza" })
+            assertTrue(stops.any { it.type == "pickup" })
+            assertTrue(stops.all { it.itemsSummary.contains(tent.name) })
+
+            // Second call is idempotent — no duplicates
+            assertEquals(0, repo.scheduleStopsForOrder(order.id))
+            assertEquals(2, repo.state.value.deliveryStops.filter { it.orderId == order.id }.size)
+
+            // Orders without a venue generate nothing
+            val noVenueOrder = repo.checkoutRental(
+                lines = listOf(DesktopCartLine(tent.id, tent.name, tent.priceCents, 1.0, 1)),
+                rentalDays = 1,
+                paymentType = "cash",
+                paidCents = 0L,
+                discountPercent = 0.0,
+                fixedDiscountCents = 0L,
+                depositCents = 0L,
+                client = null,
+                eventName = "",
+                eventVenue = "",
+                note = "",
+            )
+            assertEquals(0, repo.scheduleStopsForOrder(noVenueOrder.id))
         } finally {
             dir.deleteRecursively()
         }

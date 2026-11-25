@@ -43,6 +43,7 @@ import com.loypos.app.data.local.CategoryEntity
 import com.loypos.app.data.local.CustomerEntity
 import com.loypos.app.data.local.DailyRevenuePoint
 import com.loypos.app.data.local.DamageReportEntity
+import com.loypos.app.data.local.DeliveryStopEntity
 import com.loypos.app.data.local.MaintenanceScheduleEntity
 import com.loypos.app.data.local.DaySalesSummary
 import com.loypos.app.data.local.DbStats
@@ -99,6 +100,7 @@ data class LoyPosDataState(
     val eventKits: List<EventKitWithItems> = emptyList(),
     val damageReports: List<DamageReportEntity> = emptyList(),
     val maintenanceSchedules: List<MaintenanceScheduleEntity> = emptyList(),
+    val deliveryStops: List<DeliveryStopEntity> = emptyList(),
 ) {
     fun itemRentalCount(itemId: String): Int =
         receipts.count { it.receipt.isCompleted && it.lines.any { l -> l.itemId == itemId } }
@@ -270,9 +272,9 @@ class LoyPosViewModel(application: Application) : AndroidViewModel(application) 
     private val trackingDataFlow = combine(
         combine(repo.equipmentUnitsFlow, repo.equipmentScanLogsFlow) { u, s -> u to s },
         combine(repo.agreementTemplatesFlow, repo.eventKitsFlow) { t, k -> t to k },
-        combine(repo.damageReportsFlow, repo.maintenanceSchedulesFlow) { d, m -> d to m },
-    ) { (units, scanLogs), (templates, kits), (damages, maintenance) ->
-        TrackingBundle(units, scanLogs, templates, kits, damages, maintenance)
+        combine(repo.damageReportsFlow, repo.maintenanceSchedulesFlow, repo.deliveryStopsFlow) { d, m, stops -> Triple(d, m, stops) },
+    ) { (units, scanLogs), (templates, kits), (damages, maintenance, deliveryStops) ->
+        TrackingBundle(units, scanLogs, templates, kits, damages, maintenance, deliveryStops)
     }
 
     val dataState: StateFlow<LoyPosDataState> = combine(
@@ -296,6 +298,7 @@ class LoyPosViewModel(application: Application) : AndroidViewModel(application) 
             eventKits = tracking.kits,
             damageReports = tracking.damages,
             maintenanceSchedules = tracking.maintenance,
+            deliveryStops = tracking.deliveryStops,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -310,6 +313,7 @@ class LoyPosViewModel(application: Application) : AndroidViewModel(application) 
         val kits: List<EventKitWithItems>,
         val damages: List<DamageReportEntity>,
         val maintenance: List<MaintenanceScheduleEntity>,
+        val deliveryStops: List<DeliveryStopEntity>,
     )
 
     init {
@@ -832,6 +836,7 @@ class LoyPosViewModel(application: Application) : AndroidViewModel(application) 
             if (data.settings.returnReminderAlertsEnabled) {
                 RentalReturnWorkScheduler.scheduleForRental(appContext, receipt.receipt)
             }
+            autoScheduleDispatchStops(receipt)
             refreshHealthAndBackups()
             onSuccess()
         }
@@ -1860,6 +1865,147 @@ class LoyPosViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             repo.deleteMaintenanceSchedule(id)
             showMessage("Maintenance schedule deleted")
+        }
+    }
+
+    // --- Delivery & Pickup Dispatch Board ---
+    fun buildDispatchStopsForReceipt(receipt: ReceiptWithLines, now: Long): List<DeliveryStopEntity> {
+        val sale = receipt.receipt
+        if (sale.eventVenue.isBlank()) return emptyList()
+        val itemsSummary = receipt.lines.joinToString(", ") { line ->
+            "${formatQty(line.qty)}× ${line.name}"
+        }.take(180)
+        val deliveryAt = maxOf(sale.rentalStartMs, now)
+        val pickupAt = maxOf(sale.rentalEndMs, deliveryAt + 86_400_000L)
+        return listOf(
+            DeliveryStopEntity(
+                id = newId(),
+                type = DeliveryStopEntity.TYPE_DELIVERY,
+                receiptId = sale.id,
+                receiptNumber = sale.number,
+                customerName = sale.customerName ?: "",
+                eventName = sale.eventName,
+                venue = sale.eventVenue,
+                scheduledMs = deliveryAt,
+                itemsSummary = itemsSummary,
+                status = DeliveryStopEntity.STATUS_SCHEDULED,
+                createdAt = now,
+            ),
+            DeliveryStopEntity(
+                id = newId(),
+                type = DeliveryStopEntity.TYPE_PICKUP,
+                receiptId = sale.id,
+                receiptNumber = sale.number,
+                customerName = sale.customerName ?: "",
+                eventName = sale.eventName,
+                venue = sale.eventVenue,
+                scheduledMs = pickupAt,
+                itemsSummary = itemsSummary,
+                notes = "Pickup after event — verify all units back against the packing list.",
+                status = DeliveryStopEntity.STATUS_SCHEDULED,
+                createdAt = now,
+            ),
+        )
+    }
+
+    private fun autoScheduleDispatchStops(receipt: ReceiptWithLines) {
+        val stops = buildDispatchStopsForReceipt(receipt, nowMs())
+        if (stops.isEmpty()) return
+        viewModelScope.launch {
+            repo.saveDeliveryStops(stops)
+        }
+    }
+
+    fun scheduleDispatchStopsForReceipt(receiptId: String) {
+        viewModelScope.launch {
+            val receipt = dataState.value.receipts.firstOrNull { it.receipt.id == receiptId }
+            if (receipt == null) {
+                showMessage("Rental not found")
+                return@launch
+            }
+            val existing = repo.getDeliveryStopsForReceipt(receiptId)
+            val existingTypes = existing.map { it.type }.toSet()
+            val fresh = buildDispatchStopsForReceipt(receipt, nowMs()).filter { it.type !in existingTypes }
+            if (fresh.isEmpty()) {
+                showMessage("Dispatch stops already scheduled for this rental")
+            } else {
+                repo.saveDeliveryStops(fresh)
+                showMessage("${fresh.size} dispatch stop(s) scheduled for ${receipt.receipt.eventVenue}")
+            }
+        }
+    }
+
+    fun saveDeliveryStop(
+        type: String,
+        receiptId: String?,
+        receiptNumber: Int?,
+        customerName: String,
+        eventName: String,
+        venue: String,
+        contactPhone: String,
+        scheduledMs: Long,
+        driverName: String,
+        vehicle: String,
+        itemsSummary: String,
+        notes: String,
+        existing: DeliveryStopEntity? = null,
+    ) {
+        val cleanVenue = venue.trim()
+        if (cleanVenue.isEmpty()) {
+            showMessage("Venue or delivery address is required")
+            return
+        }
+        val now = nowMs()
+        val stop = DeliveryStopEntity(
+            id = existing?.id ?: newId(),
+            type = existing?.type ?: type,
+            receiptId = receiptId ?: existing?.receiptId,
+            receiptNumber = receiptNumber ?: existing?.receiptNumber,
+            customerName = customerName.trim(),
+            eventName = eventName.trim(),
+            venue = cleanVenue,
+            contactPhone = contactPhone.trim(),
+            scheduledMs = scheduledMs,
+            driverName = driverName.trim(),
+            vehicle = vehicle.trim(),
+            itemsSummary = itemsSummary.trim(),
+            notes = notes.trim(),
+            status = existing?.status ?: DeliveryStopEntity.STATUS_SCHEDULED,
+            completedAtMs = existing?.completedAtMs,
+            createdAt = existing?.createdAt ?: now,
+        )
+        viewModelScope.launch {
+            repo.saveDeliveryStop(stop)
+            showMessage(
+                if (stop.type == DeliveryStopEntity.TYPE_DELIVERY) "Delivery run saved — $cleanVenue"
+                else "Pickup run saved — $cleanVenue"
+            )
+        }
+    }
+
+    fun advanceDeliveryStop(stop: DeliveryStopEntity) {
+        val nextStatus = when (stop.status) {
+            DeliveryStopEntity.STATUS_SCHEDULED -> DeliveryStopEntity.STATUS_EN_ROUTE
+            else -> DeliveryStopEntity.STATUS_DONE
+        }
+        viewModelScope.launch {
+            repo.updateDeliveryStopStatus(stop.id, nextStatus)
+            val label = if (nextStatus == DeliveryStopEntity.STATUS_EN_ROUTE) "Driver en route to ${stop.venue}" else "Stop completed — ${stop.venue}"
+            showMessage(label)
+        }
+    }
+
+    fun markDeliveryStopFailed(stop: DeliveryStopEntity) {
+        viewModelScope.launch {
+            repo.updateDeliveryStopStatus(stop.id, DeliveryStopEntity.STATUS_FAILED)
+            showMessage("Stop marked failed — ${stop.venue}")
+        }
+    }
+
+    fun deleteDeliveryStop(id: String) {
+        viewModelScope.launch {
+            repo.deleteDeliveryStop(id)
+            showMessage("Dispatch stop deleted")
         }
     }
 

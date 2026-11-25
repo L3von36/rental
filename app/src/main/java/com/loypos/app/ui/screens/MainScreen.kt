@@ -31,6 +31,7 @@ import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.Layers
+import androidx.compose.material.icons.outlined.LocalShipping
 import androidx.compose.material.icons.outlined.PeopleOutline
 import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.PointOfSale
@@ -90,6 +91,7 @@ import com.loypos.app.ui.navigation.CheckoutRoute
 import com.loypos.app.ui.navigation.CustomersRoute
 import com.loypos.app.ui.navigation.DamageReportsRoute
 import com.loypos.app.ui.navigation.DashboardRoute
+import com.loypos.app.ui.navigation.DispatchRoute
 import com.loypos.app.ui.navigation.EventKitsRoute
 import com.loypos.app.ui.navigation.InventoryRoute
 import com.loypos.app.ui.navigation.MaintenanceRoute
@@ -246,6 +248,7 @@ fun MainScreen(
                     matchClasses = listOf(ReceiptsRoute::class, ReceiptDetailRoute::class),
                 ),
                 TopLevelDestination(CalendarRoute, CalendarRoute::class, "Schedule", Icons.Outlined.CalendarMonth, "nav_schedule", "OPERATIONS"),
+                TopLevelDestination(DispatchRoute(), DispatchRoute::class, "Dispatch", Icons.Outlined.LocalShipping, "nav_dispatch", "OPERATIONS"),
                 TopLevelDestination(InventoryRoute, InventoryRoute::class, "Equipment", Icons.Outlined.Inventory2, "nav_inventory", "FLEET & LOGS"),
                 TopLevelDestination(StockRoute, StockRoute::class, "Fleet Stock", Icons.Outlined.Warehouse, "nav_stock", "FLEET & LOGS"),
                 TopLevelDestination(EventKitsRoute, EventKitsRoute::class, "Event Kits", Icons.Outlined.Layers, "nav_event_kits", "FLEET & LOGS"),
@@ -279,6 +282,7 @@ fun MainScreen(
                     matchClasses = listOf(ReceiptsRoute::class, ReceiptDetailRoute::class),
                 ),
                 TopLevelDestination(CalendarRoute, CalendarRoute::class, "Schedule", Icons.Outlined.CalendarMonth, "nav_schedule", "OPERATIONS"),
+                TopLevelDestination(DispatchRoute(), DispatchRoute::class, "Dispatch", Icons.Outlined.LocalShipping, "nav_dispatch", "OPERATIONS"),
                 TopLevelDestination(EventKitsRoute, EventKitsRoute::class, "Event Kits", Icons.Outlined.Layers, "nav_event_kits", "OPERATIONS"),
                 TopLevelDestination(ShiftRoute, ShiftRoute::class, "Shift", Icons.Outlined.AccessTime, "nav_shift", "STAFF"),
                 TopLevelDestination(AccountRoute, AccountRoute::class, "Account", Icons.Outlined.PersonOutline, "nav_account", "STAFF"),
@@ -689,6 +693,16 @@ fun MainScreen(
                             viewModel = viewModel,
                             data = data,
                             initialItemId = args.initialItemId,
+                            onBack = { navController.popBackStack() },
+                        )
+                    }
+
+                    composable<DispatchRoute> { entry ->
+                        val args = entry.toRoute<DispatchRoute>()
+                        DispatchScreen(
+                            viewModel = viewModel,
+                            data = data,
+                            initialReceiptId = args.initialReceiptId,
                             onBack = { navController.popBackStack() },
                         )
                     }

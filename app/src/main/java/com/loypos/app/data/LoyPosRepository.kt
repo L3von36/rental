@@ -31,6 +31,7 @@ import com.loypos.app.data.local.CustomerEntity
 import com.loypos.app.data.local.DailyRevenuePoint
 import com.loypos.app.core.ItemPhotos
 import com.loypos.app.data.local.DamageReportEntity
+import com.loypos.app.data.local.DeliveryStopEntity
 import com.loypos.app.data.local.MaintenanceScheduleEntity
 import com.loypos.app.data.local.DbStats
 import com.loypos.app.data.local.EquipmentScanLogEntity
@@ -143,6 +144,7 @@ class LoyPosRepository(private val context: Context) {
     val eventKitsFlow: Flow<List<EventKitWithItems>> = dao.observeEventKitsWithItems()
     val damageReportsFlow: Flow<List<DamageReportEntity>> = dao.observeDamageReports()
     val maintenanceSchedulesFlow: Flow<List<MaintenanceScheduleEntity>> = dao.observeMaintenanceSchedules()
+    val deliveryStopsFlow: Flow<List<DeliveryStopEntity>> = dao.observeDeliveryStops()
 
     val receiptsWithLinesFlow: Flow<List<ReceiptWithLines>> = saleDao.observeSalesWithItems()
 
@@ -2272,5 +2274,25 @@ class LoyPosRepository(private val context: Context) {
     }
 
     suspend fun getItemRentalCount(itemId: String): Int = dao.getRentalCountForItem(itemId)
+
+    suspend fun saveDeliveryStop(stop: DeliveryStopEntity) {
+        dao.upsertDeliveryStop(stop)
+    }
+
+    suspend fun saveDeliveryStops(stops: List<DeliveryStopEntity>) {
+        if (stops.isNotEmpty()) dao.upsertDeliveryStops(stops)
+    }
+
+    suspend fun deleteDeliveryStop(id: String) {
+        dao.deleteDeliveryStopById(id)
+    }
+
+    suspend fun getDeliveryStopsForReceipt(receiptId: String): List<DeliveryStopEntity> =
+        dao.getDeliveryStopsForReceipt(receiptId)
+
+    suspend fun updateDeliveryStopStatus(id: String, status: String) {
+        val completedAt = if (status == DeliveryStopEntity.STATUS_DONE || status == DeliveryStopEntity.STATUS_FAILED) nowMs() else null
+        dao.updateDeliveryStopStatus(id, status, completedAt)
+    }
 }
 
